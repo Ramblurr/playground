@@ -1,0 +1,16 @@
+{:paths   ["src" "resources"]
+ :deps    {org.clojure/clojure             {:mvn/version "1.11.1"}
+           raylib-clj/raylib-clj           {:local/root "/home/ramblurr/src/clojure-playground/raylib-clj/target/uberjar/raylib-clj-0.1.0-SNAPSHOT.jar"}
+           io.github.kiranshila/raylib-clj {:git/sha "71ea1997b5e7d49bfeb1b497cc4dc4079f08f0ee"}}
+ :aliases {:dev {:extra-deps {nrepl/nrepl                   {:mvn/version "1.0.0"}
+                              cider/cider-nrepl             {:mvn/version "0.40.0"}
+                              djblue/portal                 {:mvn/version "0.48.0"}
+                              integrant/repl                {:mvn/version "0.3.3"}
+                              refactor-nrepl/refactor-nrepl {:mvn/version "3.9.0"}}
+                 :jvm-opts   [;; "-Dclojure.compiler.direct-linking=true"
+                              "--enable-preview"
+                              ;; "--add-modules=jdk.incubator.foreign"
+                              "--enable-native-access=ALL-UNNAMED"
+                              ;; "-Dforeign.restricted=permit"
+                              ;; "--add-opens" "java.base/java.lang=ALL-UNNAMED"
+                              ]}}}

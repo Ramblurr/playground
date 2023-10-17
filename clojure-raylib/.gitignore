@@ -1,0 +1,6 @@
+target/
+resources/public/js/generated
+.*
+!.gitignore
+
+node_modules
