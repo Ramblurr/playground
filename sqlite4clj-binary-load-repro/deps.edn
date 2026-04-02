@@ -1,0 +1,5 @@
+{:paths ["."]
+ :deps  {org.clojure/clojure {:mvn/version "1.12.4"}
+         andersmurphy/sqlite4clj
+         {:git/url "https://github.com/andersmurphy/sqlite4clj"
+          :git/sha "45b2ce9a8e2944f7b9aa0af7d69a0e2a9352aff3"}}}
