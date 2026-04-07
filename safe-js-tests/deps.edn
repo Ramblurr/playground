@@ -6,8 +6,9 @@
         com.clojure-goes-fast/clj-async-profiler {:mvn/version "2.0.0-beta1"}
         criterium/criterium {:mvn/version "0.5.153-ALPHA"}}
  :aliases
- {:run {:jvm-opts ["-Djdk.attach.allowAttachSelf"
-                   "-XX:+UnlockExperimentalVMOptions"
-                   "-XX:CompileCommand=blackhole,criterium.blackhole.Blackhole::consume"
-                   "-XX:+UnlockDiagnosticVMOptions"
-                   "-XX:+DebugNonSafepoints"]}}}
+ {:run {:jvm-opts  ["-Djdk.attach.allowAttachSelf"
+                    "-XX:+UnlockExperimentalVMOptions"
+                    "-XX:CompileCommand=blackhole,criterium.blackhole.Blackhole::consume"
+                    "-XX:+UnlockDiagnosticVMOptions"
+                    "-XX:+DebugNonSafepoints"]
+        :main-opts ["-m" "bench"]}}}

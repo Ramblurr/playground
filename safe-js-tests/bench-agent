@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+agent_path="$(
+  clj -M -e "(require '[clojure.java.io :as io]
+                       '[clojure.string :as str]
+                       '[criterium.agent.loader :as loader])
+              (if-let [src (loader/extract-agent)]
+                (let [ext (if (str/ends-with? src \".so\") \".so\" \".dylib\")
+                      dst (str \"/tmp/safe-js-tests-criterium-agent\" ext)]
+                  (io/copy (io/file src) (io/file dst))
+                  (.setExecutable (io/file dst) true)
+                  (print dst))
+                (System/exit 1))"
+)"
+
+if [[ -z "${agent_path}" || "${agent_path}" == "nil" ]]; then
+  echo "Failed to resolve a Criterium native agent path." >&2
+  exit 1
+fi
+
+exec clj "-J-agentpath:${agent_path}" -M:run
