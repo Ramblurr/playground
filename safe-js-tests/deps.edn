@@ -1,0 +1,13 @@
+{:paths ["."]
+ :deps {io.github.KnowClick/safe-js {:git/url "https://github.com/KnowClick/safe-js"
+                                     :git/sha "5796e4ca18924f00eaa3a313b09859fc72844dc0"}
+        com.cnuernber/charred {:mvn/version "1.037"}
+        org.clojure/data.json {:mvn/version "2.5.1"}
+        com.clojure-goes-fast/clj-async-profiler {:mvn/version "2.0.0-beta1"}
+        criterium/criterium {:mvn/version "0.5.153-ALPHA"}}
+ :aliases
+ {:run {:jvm-opts ["-Djdk.attach.allowAttachSelf"
+                   "-XX:+UnlockExperimentalVMOptions"
+                   "-XX:CompileCommand=blackhole,criterium.blackhole.Blackhole::consume"
+                   "-XX:+UnlockDiagnosticVMOptions"
+                   "-XX:+DebugNonSafepoints"]}}}
