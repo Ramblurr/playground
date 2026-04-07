@@ -1,4 +1,6 @@
 {:paths ["."]
- :deps {io.replikativ/datahike-lmdb {:git/url "https://github.com/replikativ/datahike-lmdb" :git/sha "9136ec43fc7d4cfa59345072740c5f9af56fb889"}}
+ :deps {io.replikativ/datahike-lmdb {:git/url "https://github.com/replikativ/datahike-lmdb"
+                                     :git/sha "bc9f024b791c30ea8fcf48b1dbba7c1abe00f3de"}}
  :aliases {:run
-           {:jvm-opts    ["--enable-native-access=ALL-UNNAMED"]}}}
+           {:main-opts ["-m" "readme"]
+            :jvm-opts    ["--enable-native-access=ALL-UNNAMED"]}}}
