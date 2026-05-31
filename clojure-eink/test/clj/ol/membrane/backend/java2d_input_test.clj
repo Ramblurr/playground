@@ -1,9 +1,9 @@
-(ns ol.membrane.eink-backend-input-test
+(ns ol.membrane.backend.java2d-input-test
   (:require
    [clojure.test :refer [deftest is testing]]
    [membrane.component :as component :refer [defui]]
    [membrane.ui :as ui]
-   [ol.membrane.eink-backend :as backend]))
+   [ol.membrane.backend.java2d :as backend]))
 
 (defui input-probe [{:keys [last-event]}]
   (ui/on :mouse-down (fn [_pos]

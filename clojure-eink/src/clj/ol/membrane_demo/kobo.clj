@@ -3,7 +3,7 @@
    [membrane.basic-components :as basic]
    [membrane.component :as component :refer [defui]]
    [membrane.ui :as ui]
-   [ol.membrane.eink-backend :as backend]))
+   [ol.membrane.backend.java2d :as backend]))
 
 (def basic-components-loaded?
   (var? #'basic/button))

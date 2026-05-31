@@ -13,7 +13,7 @@
 
 - `src/clj/membrane/` is vendored upstream Membrane only. Do not edit files there by hand.
 - When vendoring Membrane, copy exact files from `/home/ramblurr/src/github.com/phronmophobic/membrane/src/membrane/` with `cp`, then verify with `diff -q`.
-- Local backend code belongs under `src/clj/ol/membrane/`, currently `ol.membrane.eink-backend`.
+- Local backend code belongs under `src/clj/ol/membrane/backend/`, currently `ol.membrane.backend.java2d` and `ol.membrane.backend.skia`.
 - Demo/proof UI belongs under `src/clj/ol/*`, currently `ol.membrane-demo` and future `ol.membrane-demo.*`.
 - Do not overwrite `dev/user.clj`.
 - Unrelated Nix/package work may be present in the worktree; do not stage or modify it unless explicitly asked.

@@ -4,7 +4,7 @@
    [membrane.basic-components :as basic]
    [membrane.component :as component :refer [defui]]
    [membrane.ui :as ui]
-   [ol.membrane.eink-backend :as backend]
+   [ol.membrane.backend.java2d :as backend]
    [ol.project :as project]))
 
 (defui hello-component [{:keys [text]}]

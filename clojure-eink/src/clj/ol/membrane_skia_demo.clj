@@ -1,7 +1,7 @@
 (ns ol.membrane-skia-demo
   (:require
    [membrane.ui :as ui]
-   [ol.membrane.skia-eink-backend :as backend]
+   [ol.membrane.backend.skia :as backend]
    [ol.project :as project]))
 
 (def paragraph-text

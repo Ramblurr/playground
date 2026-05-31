@@ -1,9 +1,9 @@
-(ns ol.membrane.skia-eink-backend
+(ns ol.membrane.backend.skia
   (:require
    [clojure.java.io :as io]
    [clojure.string :as str]
    [membrane.ui :as ui]
-   [ol.membrane.eink-backend :as java2d-backend])
+   [ol.membrane.backend.java2d :as java2d-backend])
   (:import
    [java.lang.foreign Arena FunctionDescriptor Linker Linker$Option MemoryLayout MemorySegment SymbolLookup ValueLayout]
    [java.lang.invoke MethodHandle]

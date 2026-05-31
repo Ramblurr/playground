@@ -4,7 +4,7 @@
    [membrane.component :as component]
    [membrane.ui :as ui]
    [ol.membrane-demo.kobo :as kobo]
-   [ol.membrane.eink-backend :as backend]
+   [ol.membrane.backend.java2d :as backend]
    [ol.project :as project]))
 
 (defn- all-nodes

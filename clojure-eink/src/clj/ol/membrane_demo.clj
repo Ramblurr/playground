@@ -5,7 +5,7 @@
    [membrane.ui :as ui]
    [ol.input.kobo :as input.kobo]
    [ol.membrane-demo.kobo :as kobo]
-   [ol.membrane.eink-backend :as backend]
+   [ol.membrane.backend.java2d :as backend]
    [ol.project :as project]))
 
 (defn- centered-label
@@ -140,7 +140,7 @@
 
 (defn- reload-demo!
   []
-  (doseq [path ["src/clj/ol/membrane/eink_backend.clj"
+  (doseq [path ["src/clj/ol/membrane/backend/java2d.clj"
                 "src/clj/ol/membrane_demo.clj"
                 "src/clj/ol/membrane_demo/kobo.clj"]]
     (load-file path)

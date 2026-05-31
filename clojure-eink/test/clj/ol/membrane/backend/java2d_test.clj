@@ -1,14 +1,13 @@
-(ns ol.membrane.eink-backend-test
+(ns ol.membrane.backend.java2d-test
   (:require
    [clojure.java.io :as io]
    [clojure.test :refer [deftest is testing]]
    [membrane.toolkit :as tk]
    [membrane.ui :as ui]
-   [ol.membrane.eink-backend :as backend]
+   [ol.membrane.backend.java2d :as backend]
    [ol.project :as project])
   (:import
    [javax.imageio ImageIO]))
-
 
 (deftest draw-basic-ui-to-gray-image-test
   (testing "renders Membrane shapes and text to a byte-backed grayscale image"
@@ -39,21 +38,21 @@
     (let [gray {:width 3 :height 2 :stride 3 :data (byte-array (map byte [0 1 2 3 4 5]))}]
       (is (nil? (backend/diff-gray8 (backend/snapshot-gray8 gray) gray)))))
   (testing "damage is one bounding rect around changed pixels"
-    (let [previous {:width 4 :height 3 :stride 4
+    (let [previous {:width 4                                 :height 3 :stride 4
                     :data  (byte-array (repeat 12 (byte 0)))}
-          current  {:width 4 :height 3 :stride 4
+          current  {:width 4                                 :height 3 :stride 4
                     :data  (byte-array (map byte [0 0 0 0
-                                                   0 7 0 8
-                                                   0 0 9 0]))}]
+                                                  0 7 0 8
+                                                  0 0 9 0]))}]
       (is (= {:x 1 :y 1 :width 3 :height 2}
              (backend/diff-gray8 previous current))))))
 
 (deftest crop-gray8-test
   (testing "crop-gray8 copies rows into a compact buffer"
-    (let [gray {:width 4 :height 3 :stride 4
+    (let [gray {:width 4                                   :height 3 :stride 4
                 :data  (byte-array (map byte [0 1 2 3
-                                               4 5 6 7
-                                               8 9 10 11]))}
+                                              4 5 6 7
+                                              8 9 10 11]))}
           crop (backend/crop-gray8 gray {:x 1 :y 1 :width 2 :height 2})]
       (is (= {:width 2 :height 2 :stride 2} (dissoc crop :data)))
       (is (= [5 6 9 10] (mapv #(bit-and 0xFF %) (:data crop)))))))
@@ -66,9 +65,9 @@
           gray    {:width 2 :height 2 :stride 2 :data data}]
       (with-redefs [project/present-gray8! (fn [native gray opts]
                                              (swap! calls conj {:native native :gray gray :opts opts}))]
-        (is (= {:presented? true
+        (is (= {:presented?   true
                 :present-kind :full
-                :dirty-rect {:x 0 :y 0 :width 2 :height 2}}
+                :dirty-rect   {:x 0 :y 0 :width 2 :height 2}}
                (select-keys (backend/present-gray8-with-damage! context gray {:waveform :du})
                             [:presented? :present-kind :dirty-rect])))
         (is (= 1 (count @calls)))
@@ -87,18 +86,18 @@
         (is (empty? @calls)))))
   (testing "small damage crops and presents at dirty x/y"
     (let [calls   (atom [])
-          context {:native ::native
-                   :previous-gray (atom {:width 4 :height 3 :stride 4
-                                          :data (byte-array (repeat 12 (byte 0)))})}
-          current {:width 4 :height 3 :stride 4
+          context {:native        ::native
+                   :previous-gray (atom {:width 4                                 :height 3 :stride 4
+                                         :data  (byte-array (repeat 12 (byte 0)))})}
+          current {:width 4                                 :height 3 :stride 4
                    :data  (byte-array (map byte [0 0 0 0
-                                                  0 7 0 8
-                                                  0 0 9 0]))}]
+                                                 0 7 0 8
+                                                 0 0 9 0]))}]
       (with-redefs [project/present-gray8! (fn [native gray opts]
                                              (swap! calls conj {:native native :gray gray :opts opts}))]
-        (is (= {:presented? true
+        (is (= {:presented?   true
                 :present-kind :partial
-                :dirty-rect {:x 1 :y 1 :width 3 :height 2}}
+                :dirty-rect   {:x 1 :y 1 :width 3 :height 2}}
                (select-keys (backend/present-gray8-with-damage! context current {:damage-full-threshold 1.0})
                             [:presented? :present-kind :dirty-rect])))
         (is (= 1 (count @calls)))
@@ -111,7 +110,7 @@
     (let [calls   (atom [])
           context (backend/open-context! {:native ::native :width 160 :height 96})
           elem    [(ui/with-color [0 0 0]
-                    (ui/rectangle 80 40))
+                     (ui/rectangle 80 40))
                    (ui/translate 12 28
                                  (ui/label "Hi" (ui/font nil 24)))]]
       (try
@@ -140,7 +139,7 @@
         (with-redefs [project/present-gray8! (fn [native gray opts]
                                                (swap! calls conj {:native native :gray gray :opts opts}))]
           (let [result (backend/render-view! context view-fn {:include-container-info true
-                                                              :present? true})]
+                                                              :present?               true})]
             (is (= [[160 96]] @containers))
             (is (= :full (:present-kind result)))
             (is (= 1 (count @calls)))))
@@ -149,13 +148,13 @@
 
 (defn- current-toolkit
   []
-  (some-> (ns-resolve 'ol.membrane.eink-backend 'toolkit) deref))
+  (some-> (ns-resolve 'ol.membrane.backend.java2d 'toolkit) deref))
 
 (deftest toolkit-conformance-test
   (testing "e-ink backend exposes a Membrane toolkit object"
     (let [toolkit (current-toolkit)
           font    (ui/font nil 24)]
-      (is (some? toolkit) "ol.membrane.eink-backend/toolkit should exist")
+      (is (some? toolkit) "ol.membrane.backend.java2d/toolkit should exist")
       (when toolkit
         (is (= {:toolkit?      true
                 :run?          true
@@ -182,8 +181,8 @@
   (testing "toolkit save-image renders a PNG at the requested size"
     (let [toolkit (current-toolkit)
           dest    (str (java.nio.file.Files/createTempFile "membrane-toolkit" ".png"
-                                                              (make-array java.nio.file.attribute.FileAttribute 0)))]
-      (is (some? toolkit) "ol.membrane.eink-backend/toolkit should exist")
+                                                           (make-array java.nio.file.attribute.FileAttribute 0)))]
+      (is (some? toolkit) "ol.membrane.backend.java2d/toolkit should exist")
       (try
         (when toolkit
           (let [saved-path (tk/save-image toolkit

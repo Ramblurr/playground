@@ -1,9 +1,9 @@
-(ns ol.membrane.skia-eink-backend-test
+(ns ol.membrane.backend.skia-test
   (:require
    [clojure.java.io :as io]
    [clojure.test :refer [deftest is testing]]
    [membrane.ui :as ui]
-   [ol.membrane.skia-eink-backend :as backend])
+   [ol.membrane.backend.skia :as backend])
   (:import
    [java.lang.foreign Arena MemorySegment ValueLayout]
    [java.lang.invoke MethodHandle]
@@ -452,7 +452,7 @@
 
 (defn- backend-var
   [sym]
-  (ns-resolve 'ol.membrane.skia-eink-backend sym))
+  (ns-resolve 'ol.membrane.backend.skia sym))
 
 (defn- missing-high-level-vars
   []

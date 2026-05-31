@@ -1,4 +1,4 @@
-(ns ol.membrane.eink-backend
+(ns ol.membrane.backend.java2d
   (:require
    [clojure.string :as str]
    [membrane.toolkit :as tk]
@@ -724,15 +724,15 @@
 
     tk/IToolkitFontMetrics
     (font-metrics [_ font]
-      (ol.membrane.eink-backend/font-metrics font))
+      (ol.membrane.backend.java2d/font-metrics font))
 
     tk/IToolkitFontAdvanceX
     (font-advance-x [_ font s]
-      (ol.membrane.eink-backend/font-advance-x font s))
+      (ol.membrane.backend.java2d/font-advance-x font s))
 
     tk/IToolkitFontLineHeight
     (font-line-height [_ font]
-      (ol.membrane.eink-backend/font-line-height font))
+      (ol.membrane.backend.java2d/font-line-height font))
 
     tk/IToolkitSaveImage
     (save-image [_ dest elem]
