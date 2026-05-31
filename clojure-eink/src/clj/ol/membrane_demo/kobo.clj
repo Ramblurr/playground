@@ -15,18 +15,21 @@
     slant  (assoc :slant slant)))
 
 (def default-more-state
-  {:time     "2:58 PM"
-   :viewport [1000 1350]
-   :menu     [{:id :wishlist :icon :heart :label "My Wishlist"}
-              {:id :articles :icon :articles :label "My Articles" :accent? true}
-              {:id :activity :icon :activity :label "Activity"}
-              {:id :beta :icon :flask :label "Beta Features"}
-              {:id :settings :icon :settings :label "Settings"}
-              {:id :help :icon :help :label "Help"}]
-   :tabs     [{:id :home :icon :home :label "Home"}
-              {:id :books :icon :books :label "My Books"}
-              {:id :discover :icon :discover :label "Discover"}
-              {:id :more :icon :more :label "More" :active? true}]})
+  {:time             "2:58 PM"
+   :viewport         [1000 1350]
+   :selected-menu-id :articles
+   :active-tab-id    :more
+   :last-input       "none"
+   :menu             [{:id :wishlist :icon :heart :label "My Wishlist"}
+                      {:id :articles :icon :articles :label "My Articles" :accent? true}
+                      {:id :activity :icon :activity :label "Activity"}
+                      {:id :beta :icon :flask :label "Beta Features"}
+                      {:id :settings :icon :settings :label "Settings"}
+                      {:id :help :icon :help :label "Help"}]
+   :tabs             [{:id :home :icon :home :label "Home"}
+                      {:id :books :icon :books :label "My Books"}
+                      {:id :discover :icon :discover :label "Discover"}
+                      {:id :more :icon :more :label "More"}]})
 
 (def reference-viewport [1000 1350])
 
@@ -387,7 +390,25 @@
        (ui/spacer margin title-h))
       (divider-row w margin (:divider theme) divider-h)))))
 
-(defui menu-row [{:keys [item theme layout]}]
+(defn- menu-ids
+  [menu]
+  (mapv :id menu))
+
+(defn- move-menu-selection
+  [menu selected-menu-id delta]
+  (let [ids         (menu-ids menu)
+        current-idx (.indexOf ids selected-menu-id)
+        current-idx (if (neg? current-idx) 0 current-idx)
+        next-idx    (-> (+ current-idx delta)
+                        (max 0)
+                        (min (dec (count ids))))]
+    (get ids next-idx selected-menu-id)))
+
+(defn- input-label
+  [prefix id]
+  (str prefix ":" (name id)))
+
+(defui menu-row [{:keys [item theme layout selected-menu-id last-input]}]
   (let [[w _]     (:screen layout)
         h         (:row-h layout)
         margin    (:margin-x layout)
@@ -395,48 +416,75 @@
         content-h (max 0 (- h divider-h layout-gap))
         icon-size (min 40 (* content-h 0.42))
         icon-slot (:icon-slot-w layout)
-        label-w   (max 0 (- w (* 2 margin) icon-slot))]
-    (ui/fixed-bounds
-     [w h]
-     (ui/vertical-layout
-      (ui/horizontal-layout
-       (ui/spacer margin content-h)
-       (centered-cell [icon-slot content-h]
-                      (menu-icon (:icon item) icon-size theme))
-       (label-left-cell (:label item) (-> theme :fonts :menu) [label-w content-h] (:ink theme))
-       (ui/spacer margin content-h))
-      (divider-row w margin (:divider theme) divider-h)))))
+        label-w   (max 0 (- w (* 2 margin) icon-slot))
+        item-id   (:id item)
+        active?   (= item-id selected-menu-id)
+        body      (ui/fixed-bounds
+                   [w h]
+                   (ui/vertical-layout
+                    (ui/fixed-bounds
+                     [w content-h]
+                     [(when active?
+                        (ui/with-color [0.90 0.90 0.90]
+                          (ui/rectangle w content-h)))
+                      (when active?
+                        (ui/with-color (:ink theme)
+                          (ui/rectangle (max 4 (* w 0.008)) content-h)))
+                      (ui/horizontal-layout
+                       (ui/spacer margin content-h)
+                       (centered-cell [icon-slot content-h]
+                                      (menu-icon (:icon item) icon-size theme))
+                       (label-left-cell (:label item) (-> theme :fonts :menu) [label-w content-h] (:ink theme))
+                       (ui/spacer margin content-h))])
+                    (divider-row w margin (:divider theme) divider-h)))]
+    (ui/on :mouse-down
+           (fn [_pos]
+             [[:set $selected-menu-id item-id]
+              [:set $last-input (input-label "menu" item-id)]])
+           body)))
 
-(defui menu-list [{:keys [items theme layout]}]
+(defui menu-list [{:keys [items theme layout selected-menu-id last-input]}]
   (let [[w _] (:screen layout)
         h     (* (:row-h layout) (count items))]
     (ui/fixed-bounds
      [w h]
      (apply ui/vertical-layout
             (map (fn [item]
-                   (menu-row {:item item :theme theme :layout layout}))
+                   (menu-row {:item              item
+                              :theme             theme
+                              :layout            layout
+                              :selected-menu-id  selected-menu-id
+                              :$selected-menu-id $selected-menu-id
+                              :last-input        last-input
+                              :$last-input       $last-input}))
                  items)))))
 
-(defui tab-item [{:keys [tab theme layout]}]
+(defui tab-item [{:keys [tab theme layout active-tab-id last-input]}]
   (let [[w _]     (:screen layout)
         h         (:bottom-h layout)
         tab-w     (/ w (:tab-count layout))
-        active?   (:active? tab)
+        tab-id    (:id tab)
+        active?   (= tab-id active-tab-id)
         color     (if active? (:accent theme) (:ink theme))
         icon-size (min 38 (* h 0.38))
         icon-h    (* h 0.52)
         label-h   (max 0 (- h icon-h layout-gap))
         font      (if active?
                     (-> theme :fonts :tab-active)
-                    (-> theme :fonts :tab))]
-    (ui/fixed-bounds
-     [tab-w h]
-     (ui/vertical-layout
-      (centered-cell [tab-w icon-h]
-                     (tab-icon (:icon tab) icon-size color))
-      (label-centered-cell (:label tab) font [tab-w label-h] color)))))
+                    (-> theme :fonts :tab))
+        body      (ui/fixed-bounds
+                   [tab-w h]
+                   (ui/vertical-layout
+                    (centered-cell [tab-w icon-h]
+                                   (tab-icon (:icon tab) icon-size color))
+                    (label-centered-cell (:label tab) font [tab-w label-h] color)))]
+    (ui/on :mouse-down
+           (fn [_pos]
+             [[:set $active-tab-id tab-id]
+              [:set $last-input (input-label "tab" tab-id)]])
+           body)))
 
-(defui bottom-tab-bar [{:keys [tabs theme layout]}]
+(defui bottom-tab-bar [{:keys [tabs theme layout active-tab-id last-input]}]
   (let [[w _]       (:screen layout)
         h           (:bottom-h layout)
         tab-w       (/ w (:tab-count layout))
@@ -450,39 +498,72 @@
       (apply ui/horizontal-layout
              (map (fn [tab]
                     (ui/fixed-bounds [tab-w indicator-h]
-                                     (if (:active? tab)
+                                     (if (= (:id tab) active-tab-id)
                                        (hline tab-w (:accent theme) indicator-h)
                                        (ui/spacer tab-w indicator-h))))
                   tabs))
       (hline w (:divider theme) divider-h)
       (apply ui/horizontal-layout
              (map (fn [tab]
-                    (tab-item {:tab tab :theme theme :layout tab-layout}))
+                    (tab-item {:tab            tab
+                               :theme          theme
+                               :layout         tab-layout
+                               :active-tab-id  active-tab-id
+                               :$active-tab-id $active-tab-id
+                               :last-input     last-input
+                               :$last-input    $last-input}))
                   tabs))))))
 
-(defui more-screen [{:keys [time menu tabs theme viewport]}]
-  (let [viewport (or viewport (:viewport default-more-state))
-        theme    (or theme (theme-for viewport))
-        menu     (or menu (:menu default-more-state))
-        tabs     (or tabs (:tabs default-more-state))
-        time     (or time (:time default-more-state))
-        layout   (layout-for viewport)
-        [w h]    (:screen layout)
-        status-h (:status-h layout)
-        header-h (:header-h layout)
-        menu-h   (* (:row-h layout) (count menu))
-        bottom-h (:bottom-h layout)
-        spacer-h (max 0 (- h status-h header-h menu-h bottom-h (* 4 layout-gap)))]
-    (ui/fixed-bounds
-     [w h]
-     [(ui/with-color (:background theme)
-        (ui/rectangle w h))
-      (ui/vertical-layout
-       (status-row {:time time :theme theme :layout layout})
-       (page-header {:title "More" :theme theme :layout layout})
-       (menu-list {:items menu :theme theme :layout layout})
-       (ui/spacer w spacer-h)
-       (bottom-tab-bar {:tabs tabs :theme theme :layout layout}))])))
+(defui more-screen [{:keys [time menu tabs theme viewport selected-menu-id active-tab-id last-input]}]
+  (let [viewport         (or viewport (:viewport default-more-state))
+        theme            (or theme (theme-for viewport))
+        menu             (or menu (:menu default-more-state))
+        tabs             (or tabs (:tabs default-more-state))
+        time             (or time (:time default-more-state))
+        selected-menu-id (or selected-menu-id (:selected-menu-id default-more-state))
+        active-tab-id    (or active-tab-id (:active-tab-id default-more-state))
+        last-input       (or last-input (:last-input default-more-state))
+        layout           (layout-for viewport)
+        [w h]            (:screen layout)
+        status-h         (:status-h layout)
+        header-h         (:header-h layout)
+        menu-h           (* (:row-h layout) (count menu))
+        bottom-h         (:bottom-h layout)
+        spacer-h         (max 0 (- h status-h header-h menu-h bottom-h (* 4 layout-gap)))
+        body             (ui/fixed-bounds
+                          [w h]
+                          [(ui/with-color (:background theme)
+                             (ui/rectangle w h))
+                           (ui/vertical-layout
+                            (status-row {:time time :theme theme :layout layout})
+                            (page-header {:title "More" :theme theme :layout layout})
+                            (menu-list {:items             menu
+                                        :theme             theme
+                                        :layout            layout
+                                        :selected-menu-id  selected-menu-id
+                                        :$selected-menu-id $selected-menu-id
+                                        :last-input        last-input
+                                        :$last-input       $last-input})
+                            (ui/spacer w spacer-h)
+                            (bottom-tab-bar {:tabs           tabs
+                                             :theme          theme
+                                             :layout         layout
+                                             :active-tab-id  active-tab-id
+                                             :$active-tab-id $active-tab-id
+                                             :last-input     last-input
+                                             :$last-input    $last-input}))])]
+    (ui/on :key-press
+           (fn [key]
+             (case key
+               :page-forward [[:set $selected-menu-id (move-menu-selection menu selected-menu-id 1)]
+                              [:set $last-input (input-label "key" key)]]
+               :page-back [[:set $selected-menu-id (move-menu-selection menu selected-menu-id -1)]
+                           [:set $last-input (input-label "key" key)]]
+               :home [[:set $active-tab-id :home]
+                      [:set $last-input (input-label "key" key)]]
+               (:power :sleep-cover :light) [[:set $last-input (input-label "key" key)]]
+               []))
+           body)))
 
 (defn more-view
   ([]

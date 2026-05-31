@@ -66,7 +66,7 @@
 (defn log-render-timings!
   [iteration total-renders timings]
   (doseq [[k label] render-phase-order
-          :when (contains? timings k)]
+          :when     (contains? timings k)]
     (log-duration! (format "render %d/%d %s" iteration total-renders label) (get timings k))))
 
 (defn- normalized-paragraph
@@ -178,7 +178,7 @@
   (when-not (contains? render-modes render-mode)
     (throw (ex-info (str "unknown render mode: " render-mode) {:render-mode render-mode})))
   (let [[image image-allocation-ms] (timed #(acquire-render-image width height (:image opts) image-cache))
-        ^Graphics2D g              (.createGraphics ^BufferedImage image)]
+        ^Graphics2D g               (.createGraphics ^BufferedImage image)]
     (try
       (let [[fonts font-setup-ms]
             (timed
@@ -284,18 +284,38 @@
                                  FunctionDescriptor
                                  (class (make-array Linker$Option 0))])))
 
-(defn- downcall
-  [^SymbolLookup lookup ^Linker linker symbol return-layout arg-layouts]
-  (let [address (.orElseThrow (.find lookup symbol))
-        options (make-array Linker$Option 0)
+(defn- downcall-handle
+  [^Linker linker address return-layout arg-layouts]
+  (let [options (make-array Linker$Option 0)
         method  (linker-downcall-method)]
     (.invoke method
              linker
              (object-array [address (descriptor return-layout arg-layouts) options]))))
 
-(defn- invoke-native
-  [^MethodHandle handle & args]
-  (.invokeWithArguments handle (object-array args)))
+(defn- downcall
+  [^SymbolLookup lookup ^Linker linker symbol return-layout arg-layouts]
+  (downcall-handle linker (.orElseThrow (.find lookup symbol)) return-layout arg-layouts))
+
+(defn- optional-downcall
+  [^SymbolLookup lookup ^Linker linker symbol return-layout arg-layouts]
+  (when-let [address (.orElse (.find lookup symbol) nil)]
+    (downcall-handle linker address return-layout arg-layouts)))
+
+(def input-event-layout
+  (MemoryLayout/structLayout
+   (into-array MemoryLayout
+               [ValueLayout/JAVA_LONG
+                ValueLayout/JAVA_LONG
+                ValueLayout/JAVA_INT
+                ValueLayout/JAVA_INT
+                ValueLayout/JAVA_INT
+                ValueLayout/JAVA_INT
+                ValueLayout/JAVA_INT
+                ValueLayout/JAVA_INT])))
+
+(defn input-event-layout-size
+  []
+  (long (.byteSize input-event-layout)))
 
 (defn load-native
   [library-path]
@@ -304,27 +324,45 @@
         linker         (Linker/nativeLinker)
         int-layout     ValueLayout/JAVA_INT
         address-layout ValueLayout/ADDRESS]
-    {:init          (downcall lookup linker "eink_init" int-layout [int-layout int-layout])
-     :close         (downcall lookup linker "eink_close" int-layout [])
-     :width         (downcall lookup linker "eink_screen_width" int-layout [])
-     :height        (downcall lookup linker "eink_screen_height" int-layout [])
-     :present-gray8 (downcall lookup linker
-                              "eink_present_gray8"
-                              int-layout
-                              [address-layout int-layout int-layout int-layout int-layout int-layout int-layout int-layout int-layout])
-     :last-error    (downcall lookup linker "eink_last_error" address-layout [])}))
+    {:init               (downcall lookup linker "eink_init" int-layout [int-layout int-layout])
+     :close              (downcall lookup linker "eink_close" int-layout [])
+     :width              (downcall lookup linker "eink_screen_width" int-layout [])
+     :height             (downcall lookup linker "eink_screen_height" int-layout [])
+     :present-gray8      (downcall lookup linker
+                                   "eink_present_gray8"
+                                   int-layout
+                                   [address-layout int-layout int-layout int-layout int-layout int-layout int-layout int-layout int-layout])
+     :last-error         (downcall lookup linker "eink_last_error" address-layout [])
+     :input-event-size   (optional-downcall lookup linker "eink_input_event_size" int-layout [])
+     :input-open-scan    (optional-downcall lookup linker "eink_input_open_scan" int-layout [int-layout int-layout])
+     :input-device-count (optional-downcall lookup linker "eink_input_device_count" int-layout [])
+     :input-device-path  (optional-downcall lookup linker "eink_input_device_path" address-layout [int-layout])
+     :input-device-name  (optional-downcall lookup linker "eink_input_device_name" address-layout [int-layout])
+     :input-device-type  (optional-downcall lookup linker "eink_input_device_type" int-layout [int-layout])
+     :input-poll         (optional-downcall lookup linker "eink_input_poll" int-layout [address-layout int-layout int-layout])
+     :input-close        (optional-downcall lookup linker "eink_input_close" int-layout [])}))
+
+(defn- invoke-native
+  [^MethodHandle handle & args]
+  (.invokeWithArguments handle (object-array args)))
+
+(defn- native-c-string
+  ([address]
+   (native-c-string address 4096))
+  ([address max-bytes]
+   (when-not (= MemorySegment/NULL address)
+     (let [segment (.reinterpret ^MemorySegment address (long max-bytes))]
+       (loop [i     0
+              bytes []]
+         (let [b (bit-and 0xFF (int (.get segment ValueLayout/JAVA_BYTE (long i))))]
+           (if (or (zero? b)
+                   (>= (inc i) max-bytes))
+             (String. (byte-array (map unchecked-byte bytes)) StandardCharsets/UTF_8)
+             (recur (inc i) (conj bytes b)))))))))
 
 (defn native-last-error
   [native]
-  (let [address (invoke-native (:last-error native))]
-    (when-not (= MemorySegment/NULL address)
-      (let [segment (.reinterpret ^MemorySegment address (long 4096))]
-        (loop [i     0
-               bytes []]
-          (let [b (bit-and 0xFF (int (.get segment ValueLayout/JAVA_BYTE (long i))))]
-            (if (zero? b)
-              (String. (byte-array (map unchecked-byte bytes)) StandardCharsets/UTF_8)
-              (recur (inc i) (conj bytes b)))))))))
+  (native-c-string (invoke-native (:last-error native))))
 
 (defn- check-native!
   [native rv action]
@@ -334,9 +372,83 @@
                       {:action action :code code})))
     code))
 
+(defn- require-native-handle
+  [native k action]
+  (or (get native k)
+      (throw (ex-info (str action " is not available in the native library")
+                      {:action action :symbol k}))))
+
+(defn input-event-size
+  [native]
+  (check-native! native
+                 (invoke-native (require-native-handle native :input-event-size "eink_input_event_size"))
+                 "eink_input_event_size"))
+
+(defn input-open-scan!
+  [native {:keys [grab? verbose?] :or {grab? false verbose? false}}]
+  (check-native! native
+                 (invoke-native (require-native-handle native :input-open-scan "eink_input_open_scan")
+                                (int (if grab? 1 0))
+                                (int (if verbose? 1 0)))
+                 "eink_input_open_scan"))
+
+(defn input-device-count
+  [native]
+  (check-native! native
+                 (invoke-native (require-native-handle native :input-device-count "eink_input_device_count"))
+                 "eink_input_device_count"))
+
+(defn input-device-info
+  [native index]
+  (let [index (int index)]
+    {:index index
+     :path  (native-c-string
+             (invoke-native (require-native-handle native :input-device-path "eink_input_device_path")
+                            index))
+     :name  (native-c-string
+             (invoke-native (require-native-handle native :input-device-name "eink_input_device_name")
+                            index))
+     :type  (int (invoke-native (require-native-handle native :input-device-type "eink_input_device_type")
+                                index))}))
+
+(defn- read-input-event
+  [^MemorySegment segment offset]
+  {:sec          (.get segment ValueLayout/JAVA_LONG (long offset))
+   :usec         (.get segment ValueLayout/JAVA_LONG (long (+ offset 8)))
+   :type         (int (.get segment ValueLayout/JAVA_INT (long (+ offset 16))))
+   :code         (int (.get segment ValueLayout/JAVA_INT (long (+ offset 20))))
+   :value        (int (.get segment ValueLayout/JAVA_INT (long (+ offset 24))))
+   :device-index (int (.get segment ValueLayout/JAVA_INT (long (+ offset 28))))
+   :device-type  (int (.get segment ValueLayout/JAVA_INT (long (+ offset 32))))})
+
+(defn input-poll!
+  [native {:keys [capacity timeout-ms] :or {capacity 256 timeout-ms 0}}]
+  (let [event-size  (input-event-layout-size)
+        native-size (input-event-size native)]
+    (when-not (= event-size native-size)
+      (throw (ex-info "native input event layout size mismatch"
+                      {:clojure-size event-size :native-size native-size})))
+    (with-open [arena (Arena/ofConfined)]
+      (let [capacity (int capacity)
+            segment  (.allocate arena (long (* capacity event-size)) 8)
+            count    (check-native! native
+                                    (invoke-native (require-native-handle native :input-poll "eink_input_poll")
+                                                   segment
+                                                   capacity
+                                                   (int timeout-ms))
+                                    "eink_input_poll")]
+        (mapv (fn [idx]
+                (read-input-event segment (* idx event-size)))
+              (range count))))))
+
+(defn input-close!
+  [native]
+  (when-let [handle (:input-close native)]
+    (check-native! native (invoke-native handle) "eink_input_close")))
+
 (defn present-gray8!
   [native {:keys [width height stride data]} {:keys [x y waveform flash? wait?]
-                                             :or   {x 0 y 0 waveform :gc16 flash? true wait? true}}]
+                                              :or   {x 0 y 0 waveform :gc16 flash? true wait? true}}]
   (let [mode (get waveforms waveform (:gc16 waveforms))]
     (with-open [arena (Arena/ofConfined)]
       (let [segment (.allocate arena (long (alength ^bytes data)) 1)]
@@ -373,6 +485,7 @@
 
 (defn close-native!
   [native]
+  (input-close! native)
   (invoke-native (:close native)))
 
 (defn native-screen-width
@@ -492,7 +605,7 @@
         render-opts   (cond-> (assoc opts :width width :height height)
                         layout-cache (assoc :layout-cache layout-cache)
                         image-cache (assoc :image-cache image-cache))
-        last-image    (loop [iteration 1
+        last-image    (loop [iteration  1
                              last-image nil]
                         (if (> iteration total-renders)
                           last-image

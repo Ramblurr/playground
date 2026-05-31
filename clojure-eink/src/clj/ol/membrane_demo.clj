@@ -1,10 +1,12 @@
 (ns ol.membrane-demo
   (:require
+   [clojure.string :as str]
+   [membrane.component :as component]
    [membrane.ui :as ui]
+   [ol.input.kobo :as input.kobo]
    [ol.membrane-demo.kobo :as kobo]
    [ol.membrane.eink-backend :as backend]
    [ol.project :as project]))
-
 
 (defn- centered-label
   [text font width height]
@@ -23,7 +25,7 @@
         button-height 82
         button-radius 8
         content       [(ui/with-color [1 1 1]
-                        (ui/rectangle width height))
+                         (ui/rectangle width height))
                        (ui/with-color [0 0 0]
                          (ui/translate 48 72
                                        (ui/label "Membrane on FBInk" title-font))
@@ -45,26 +47,96 @@
     (demo-ui {:width width :height height})))
 
 (defn- kobo-more-view
-  [{:keys [container-size]}]
-  ((kobo/more-view {:viewport container-size})))
+  []
+  (let [state (atom kobo/default-more-state)
+        app   (component/make-app #'kobo/more-screen state)]
+    (fn
+      ([]
+       (app))
+      ([{:keys [container-size] :as container-info}]
+       (when container-size
+         (swap! state assoc :viewport container-size))
+       (app container-info)))))
 
 (defn view-for-options
   [{:keys [kobo-more?]}]
   (if kobo-more?
-    kobo-more-view
+    (kobo-more-view)
     demo-view))
 
-(defn- loop-request?
-  [args]
-  (some #{"--loop"} args))
+(defn- option-value
+  [option value]
+  (when-not value
+    (throw (ex-info (str "missing value for " option) {:option option})))
+  value)
 
-(defn- kobo-more-request?
-  [args]
-  (some #{"--kobo-more" "--more"} args))
+(defn- parse-input-profile-option
+  [option value]
+  (-> (option-value option value)
+      str/lower-case
+      keyword
+      input.kobo/profile
+      :name))
 
-(defn- without-demo-runner-flags
+(defn parse-runner-args
   [args]
-  (remove #{"--loop" "--kobo-more" "--more"} args))
+  (loop [runner-opts  {:loop?               false
+                       :kobo-more?          false
+                       :input?              false
+                       :input-dump?         false
+                       :input-raw-dump?     false
+                       :input-grab?         false
+                       :input-render-moves? false
+                       :verbose-input?      false}
+         project-args []
+         xs           (seq args)]
+    (if-not xs
+      {:runner-opts  runner-opts
+       :project-args project-args}
+      (let [[arg & more] xs]
+        (case arg
+          "--loop"
+          (recur (assoc runner-opts :loop? true) project-args more)
+
+          ("--kobo-more" "--more")
+          (recur (assoc runner-opts :kobo-more? true) project-args more)
+
+          "--input"
+          (recur (assoc runner-opts :input? true) project-args more)
+
+          "--input-dump"
+          (recur (assoc runner-opts :input? true :input-dump? true :verbose-input? true) project-args more)
+
+          "--input-raw-dump"
+          (recur (assoc runner-opts :input? true :input-raw-dump? true) project-args more)
+
+          "--input-grab"
+          (recur (assoc runner-opts :input-grab? true) project-args more)
+
+          "--no-input-grab"
+          (recur (assoc runner-opts :input-grab? false) project-args more)
+
+          "--input-profile"
+          (recur (assoc runner-opts :input-profile (parse-input-profile-option arg (first more)))
+                 project-args
+                 (next more))
+
+          "--input-render-moves"
+          (recur (assoc runner-opts :input-render-moves? true) project-args more)
+
+          "--verbose-input"
+          (recur (assoc runner-opts :verbose-input? true) project-args more)
+
+          (recur runner-opts (conj project-args arg) more))))))
+
+(defn options-for-args
+  [args]
+  (let [{:keys [runner-opts project-args]} (parse-runner-args args)
+        explicit-no-present?               (boolean (some #{"--no-present"} project-args))
+        opts                               (merge (project/parse-args project-args) runner-opts)]
+    (cond-> opts
+      (:input? opts) (assoc :native? true)
+      (and (:input? opts) (not explicit-no-present?)) (assoc :present? true :present-mode :each))))
 
 (defn- reload-demo!
   []
@@ -84,8 +156,8 @@
             result (do
                      (project/log-time! (str "starting Membrane render " width "x" height))
                      (let [result (backend/render-view! context
-                                                         view-fn
-                                                         (assoc opts :include-container-info true))]
+                                                        view-fn
+                                                        (assoc opts :include-container-info true))]
                        (project/log-time! "finished Membrane render")
                        result))
             image  (:image result)]
@@ -105,18 +177,21 @@
 (defn -main
   [& args]
   (project/log-time! "entered ol.membrane-demo/-main")
-  (let [loop?      (loop-request? args)
-        kobo-more? (kobo-more-request? args)
-        opts       (assoc (project/parse-args (without-demo-runner-flags args))
-                          :kobo-more? kobo-more?)
-        view-fn    (view-for-options opts)]
+  (let [opts    (options-for-args args)
+        view-fn (view-for-options opts)]
     (project/log-time! "parsed args")
     (if (:help? opts)
       (do
         (println (project/usage))
-        (println "Membrane demo options: --loop --kobo-more/--more"))
-      (if loop?
+        (println "Membrane demo options: --loop --kobo-more/--more --input --input-dump --input-raw-dump --input-grab --no-input-grab --input-profile none|switch-xy|kobo-default|kobo-mirror-y --input-render-moves --verbose-input"))
+      (cond
+        (:input? opts)
+        (backend/run-input-loop! view-fn opts)
+
+        (:loop? opts)
         (backend/run-loop! view-fn (assoc opts
                                           :include-container-info true
                                           :reload! reload-demo!))
+
+        :else
         (run-once! view-fn opts)))))

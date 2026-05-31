@@ -3,6 +3,9 @@
    [clojure.string :as str]
    [membrane.toolkit :as tk]
    [membrane.ui :as ui]
+   [ol.input.evdev :as evdev]
+   [ol.input.kobo :as input.kobo]
+   [ol.input.runtime :as input.runtime]
    [ol.project :as project])
   (:import
    [java.awt BasicStroke Color Font Graphics2D RenderingHints]
@@ -156,24 +159,24 @@
           ascent      (.getAscent metrics)
           line-height (.getHeight metrics)]
       (push-font
-        (.setFont ^Graphics2D *g* font)
-        (doseq [[idx line] (map-indexed vector lines)]
-          (.drawString ^Graphics2D *g* ^String line (float 0.0) (float (+ ascent (* idx line-height)))))))))
+       (.setFont ^Graphics2D *g* font)
+       (doseq [[idx line] (map-indexed vector lines)]
+         (.drawString ^Graphics2D *g* ^String line (float 0.0) (float (+ ascent (* idx line-height)))))))))
 
 (extend-type membrane.ui.Translate
   IDraw
   (draw [this]
     (push-transform
-      (.translate ^Graphics2D *g* (double (:x this)) (double (:y this)))
-      (draw (:drawable this)))))
+     (.translate ^Graphics2D *g* (double (:x this)) (double (:y this)))
+     (draw (:drawable this)))))
 
 (extend-type membrane.ui.WithColor
   IDraw
   (draw [this]
     (push-color
-      (.setColor ^Graphics2D *g* (color (:color this)))
-      (doseq [drawable (:drawables this)]
-        (draw drawable)))))
+     (.setColor ^Graphics2D *g* (color (:color this)))
+     (doseq [drawable (:drawables this)]
+       (draw drawable)))))
 
 (extend-type membrane.ui.WithStyle
   IDraw
@@ -186,10 +189,10 @@
   IDraw
   (draw [this]
     (push-stroke
-      (.setStroke ^Graphics2D *g* (merge-stroke (.getStroke ^Graphics2D *g*)
-                                                {:width (:stroke-width this)}))
-      (doseq [drawable (:drawables this)]
-        (draw drawable)))))
+     (.setStroke ^Graphics2D *g* (merge-stroke (.getStroke ^Graphics2D *g*)
+                                               {:width (:stroke-width this)}))
+     (doseq [drawable (:drawables this)]
+       (draw drawable)))))
 
 (extend-type membrane.ui.Path
   IDraw
@@ -221,18 +224,18 @@
   (draw [this]
     (let [[sx sy] (:scalars this)]
       (push-transform
-        (.scale ^Graphics2D *g* (double sx) (double sy))
-        (doseq [drawable (:drawables this)]
-          (draw drawable))))))
+       (.scale ^Graphics2D *g* (double sx) (double sy))
+       (doseq [drawable (:drawables this)]
+         (draw drawable))))))
 
 (extend-type membrane.ui.ScissorView
   IDraw
   (draw [this]
     (push-clip
-      (let [[ox oy] (:offset this)
-            [w h]   (:bounds this)]
-        (.clip ^Graphics2D *g* (Rectangle2D$Double. (double ox) (double oy) (double w) (double h)))
-        (draw (:drawable this))))))
+     (let [[ox oy] (:offset this)
+           [w h]   (:bounds this)]
+       (.clip ^Graphics2D *g* (Rectangle2D$Double. (double ox) (double oy) (double w) (double h)))
+       (draw (:drawable this))))))
 
 (extend-type membrane.ui.ScrollView
   IDraw
@@ -294,7 +297,7 @@
   [dest elem size]
   (let [[width height] (or size (element-size elem))
         image          (render-to-image! elem {:width  width
-                                                :height height})]
+                                               :height height})]
     (project/write-png! image dest)))
 
 (defn snapshot-gray8
@@ -338,8 +341,8 @@
               (when (> x @max-x) (vreset! max-x x))
               (when (> y @max-y) (vreset! max-y y))))))
       (when (not= -1 @max-x)
-        {:x @min-x
-         :y @min-y
+        {:x      @min-x
+         :y      @min-y
          :width  (inc (- @max-x @min-x))
          :height (inc (- @max-y @min-y))}))))
 
@@ -364,10 +367,10 @@
   (let [native-lib' (or native-lib (project/default-native-lib))
         loaded?     (and native? (nil? native))
         native'     (or native
-                       (when native?
-                         (when-not native-lib'
-                           (throw (ex-info "native library path not provided and no default native library was found" {})))
-                         (project/load-native native-lib')))]
+                        (when native?
+                          (when-not native-lib'
+                            (throw (ex-info "native library path not provided and no default native library was found" {})))
+                          (project/load-native native-lib')))]
     (when loaded?
       (project/init-native! native'))
     (let [width'  (or width
@@ -376,16 +379,16 @@
           height' (or height
                       (when native' (project/native-screen-height native'))
                       600)]
-      {:native        native'
-       :native-lib    native-lib'
+      {:native         native'
+       :native-lib     native-lib'
        :loaded-native? loaded?
-       :width         width'
-       :height        height'
-       :image-cache   (or image-cache (atom nil))
-       :font-cache    (or font-cache (atom {}))
-       :previous-gray (or previous-gray (atom nil))
-       :render-count  (atom 0)
-       :partial-count (atom 0)})))
+       :width          width'
+       :height         height'
+       :image-cache    (or image-cache (atom nil))
+       :font-cache     (or font-cache (atom {}))
+       :previous-gray  (or previous-gray (atom nil))
+       :render-count   (atom 0)
+       :partial-count  (atom 0)})))
 
 (defn close-context!
   [context]
@@ -396,16 +399,16 @@
 (defn render-frame!
   "Render `elem` through Java2D and convert it to the final gray8 bytes."
   [context elem opts]
-  (let [render-opts (merge opts
-                           {:width       (:width context)
-                            :height      (:height context)
-                            :image-cache (:image-cache context)
-                            :font-cache  (:font-cache context)})
+  (let [render-opts       (merge opts
+                                 {:width       (:width context)
+                                  :height      (:height context)
+                                  :image-cache (:image-cache context)
+                                  :font-cache  (:font-cache context)})
         [image render-ms] (project/timed #(render-to-image! elem render-opts))
-        [gray gray-ms]   (project/timed #(project/image->gray8 image))]
+        [gray gray-ms]    (project/timed #(project/image->gray8 image))]
     (swap! (:render-count context) inc)
-    {:image image
-     :gray gray
+    {:image   image
+     :gray    gray
      :timings {:render-to-image render-ms
                :image->gray8    gray-ms}}))
 
@@ -434,15 +437,15 @@
   gray8 buffer is stored as an independent copied snapshot, never as the
   current image backing array."
   [context gray opts]
-  (let [previous      @(:previous-gray context)
-        damage?       (get opts :damage? true)
-        dirty-rect    (if damage?
-                        (diff-gray8 previous gray)
-                        (full-rect gray))]
+  (let [previous   @(:previous-gray context)
+        damage?    (get opts :damage? true)
+        dirty-rect (if damage?
+                     (diff-gray8 previous gray)
+                     (full-rect gray))]
     (if-not dirty-rect
-      {:presented? false
+      {:presented?   false
        :present-kind :skip
-       :dirty-rect nil}
+       :dirty-rect   nil}
       (let [present-kind (if (full-present? gray dirty-rect opts) :full :partial)
             gray-out     (if (= :full present-kind)
                            gray
@@ -452,9 +455,9 @@
                            (assoc opts :x (:x dirty-rect) :y (:y dirty-rect)))]
         (project/present-gray8! (:native context) gray-out present-opts)
         (reset! (:previous-gray context) (snapshot-gray8 gray))
-        {:presented? true
+        {:presented?   true
          :present-kind present-kind
-         :dirty-rect dirty-rect}))))
+         :dirty-rect   dirty-rect}))))
 
 (defn present-frame!
   "Render and damage-present one Membrane frame.
@@ -471,15 +474,15 @@
             (merge present-result)
             (assoc-in [:timings :native-present] present-ms)))
       (merge frame
-             {:presented? false
+             {:presented?   false
               :present-kind :no-native
-              :dirty-rect nil}))))
+              :dirty-rect   nil}))))
 
 (defn- view-container-info
   [context opts]
   {:container-size [(:width context) (:height context)]
-   :context context
-   :opts opts})
+   :context        context
+   :opts           opts})
 
 (defn view-element
   [context view-fn opts]
@@ -495,6 +498,129 @@
                          (present-frame! context elem opts)
                          (render-frame! context elem opts))]
     (assoc-in frame [:timings :view] view-ms)))
+
+(def page-repeat-keys
+  #{:page-back :page-forward})
+
+(defn- force-intents
+  [intents]
+  (doall (or intents [])))
+
+(defn dispatch-normalized-event!
+  [elem event]
+  (try
+    (case (:kind event)
+      :touch-down
+      (force-intents (ui/mouse-event elem (:pos event) 0 true 0))
+
+      :touch-move
+      (do
+        (force-intents (ui/mouse-move elem (:pos event)))
+        (force-intents (ui/mouse-move-global elem (:pos event))))
+
+      :touch-up
+      (force-intents (ui/mouse-event elem (:pos event) 0 false 0))
+
+      :key
+      (case (:action event)
+        :press
+        (force-intents (ui/key-press elem (:key event)))
+
+        :repeat
+        (when (contains? page-repeat-keys (:key event))
+          (force-intents (ui/key-press elem (:key event))))
+
+        :release
+        []
+
+        [])
+
+      [])
+    (catch Throwable t
+      (binding [*out* *err*]
+        (println "input dispatch failed:" (.getMessage t))
+        (.printStackTrace t))
+      [])))
+
+(defn dispatch-normalized-events!
+  [elem events]
+  (mapv #(dispatch-normalized-event! elem %) events))
+
+(defn input-event-rerender?
+  [event opts]
+  (case (:kind event)
+    :touch-down true
+    :touch-up true
+    :touch-move (boolean (:input-render-moves? opts))
+    :key (or (= :press (:action event))
+             (and (= :repeat (:action event))
+                  (contains? page-repeat-keys (:key event))))
+    false))
+
+(defn- print-normalized-events!
+  [events]
+  (doseq [event events]
+    (println "input" (pr-str (dissoc event :raw))))
+  (flush))
+
+(defn- print-raw-events!
+  [events]
+  (doseq [event events]
+    (println "raw-input" (pr-str (evdev/annotate-event event))))
+  (flush))
+
+(defn run-input-loop!
+  "Run a long-lived native input loop for a Membrane view function."
+  [view-fn base-opts]
+  (let [context      (open-context! base-opts)
+        opts         (assoc base-opts :include-container-info true)
+        input-state  (atom (input.kobo/initial-state {:input-profile (or (:input-profile base-opts) :kobo-default)
+                                                      :viewport      [(:width context) (:height context)]}))
+        current-elem (atom nil)
+        input-handle (atom nil)]
+    (try
+      (let [first-result (render-view! context view-fn opts)
+            first-elem   (view-element context view-fn opts)]
+        (reset! current-elem first-elem)
+        (println "ready: Membrane native input loop")
+        (reset! input-handle
+                (input.runtime/start-input-thread! (:native context)
+                                                   {:grab?      (:input-grab? base-opts)
+                                                    :verbose?   (:verbose-input? base-opts)
+                                                    :capacity   (:input-capacity base-opts 256)
+                                                    :timeout-ms (:input-timeout-ms base-opts 250)}))
+        (println "rendered initial frame" (:width context) "x" (:height context)
+                 "mode" (name (or (:present-kind first-result) :render-only)))
+        (flush)
+        (loop []
+          (let [batches (input.runtime/drain-queue! (:queue @input-handle))]
+            (doseq [batch batches]
+              (if (= :input-error (:kind batch))
+                (throw (:error batch))
+                (let [{next-state :state normalized :events}
+                      (input.kobo/accept-raw-events @input-state batch)]
+                  (reset! input-state next-state)
+                  (when (:input-raw-dump? base-opts)
+                    (print-raw-events! batch))
+                  (when (or (:verbose-input? base-opts) (:input-dump? base-opts))
+                    (print-normalized-events! normalized))
+                  (dispatch-normalized-events! @current-elem normalized)
+                  (when (some #(input-event-rerender? % base-opts) normalized)
+                    (let [elem   (view-element context view-fn opts)
+                          result (if (:present? base-opts)
+                                   (present-frame! context elem base-opts)
+                                   (render-frame! context elem base-opts))]
+                      (reset! current-elem elem)
+                      (println "rendered input frame" (:width context) "x" (:height context)
+                               "mode" (name (or (:present-kind result) :render-only))
+                               "dirty" (or (:dirty-rect result) "none"))
+                      (flush))))))
+            (Thread/sleep 25)
+            (recur))))
+      (finally
+        (when-let [handle @input-handle]
+          (input.runtime/stop-input-thread! handle))
+        (close-context! context)))))
 
 (defn parse-command-line
   [line]
