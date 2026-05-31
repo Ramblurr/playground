@@ -1,6 +1,7 @@
 (ns ol.membrane-demo
   (:require
    [membrane.ui :as ui]
+   [ol.membrane-demo.kobo :as kobo]
    [ol.membrane.eink-backend :as backend]
    [ol.project :as project]))
 
@@ -43,34 +44,48 @@
   (let [[width height] container-size]
     (demo-ui {:width width :height height})))
 
+(defn- kobo-more-view
+  [{:keys [container-size]}]
+  ((kobo/more-view {:viewport container-size})))
+
+(defn view-for-options
+  [{:keys [kobo-more?]}]
+  (if kobo-more?
+    kobo-more-view
+    demo-view))
+
 (defn- loop-request?
   [args]
   (some #{"--loop"} args))
 
-(defn- without-loop-flag
+(defn- kobo-more-request?
   [args]
-  (remove #(= "--loop" %) args))
+  (some #{"--kobo-more" "--more"} args))
+
+(defn- without-demo-runner-flags
+  [args]
+  (remove #{"--loop" "--kobo-more" "--more"} args))
 
 (defn- reload-demo!
   []
   (doseq [path ["src/clj/ol/membrane/eink_backend.clj"
-                "src/clj/ol/membrane_demo.clj"]]
+                "src/clj/ol/membrane_demo.clj"
+                "src/clj/ol/membrane_demo/kobo.clj"]]
     (load-file path)
     (println "reloaded" path))
   (flush))
 
 (defn- run-once!
-  [opts]
+  [view-fn opts]
   (let [context (backend/open-context! opts)]
     (try
       (let [width  (:width context)
             height (:height context)
-            elem   (demo-ui {:width width :height height})
             result (do
                      (project/log-time! (str "starting Membrane render " width "x" height))
-                     (let [result (if (:present? opts)
-                                    (backend/present-frame! context elem opts)
-                                    (backend/render-frame! context elem opts))]
+                     (let [result (backend/render-view! context
+                                                         view-fn
+                                                         (assoc opts :include-container-info true))]
                        (project/log-time! "finished Membrane render")
                        result))
             image  (:image result)]
@@ -90,15 +105,18 @@
 (defn -main
   [& args]
   (project/log-time! "entered ol.membrane-demo/-main")
-  (let [loop? (loop-request? args)
-        opts  (project/parse-args (without-loop-flag args))]
+  (let [loop?      (loop-request? args)
+        kobo-more? (kobo-more-request? args)
+        opts       (assoc (project/parse-args (without-demo-runner-flags args))
+                          :kobo-more? kobo-more?)
+        view-fn    (view-for-options opts)]
     (project/log-time! "parsed args")
     (if (:help? opts)
       (do
         (println (project/usage))
-        (println "Membrane demo options: --loop"))
+        (println "Membrane demo options: --loop --kobo-more/--more"))
       (if loop?
-        (backend/run-loop! demo-view (assoc opts
-                                            :include-container-info true
-                                            :reload! reload-demo!))
-        (run-once! opts)))))
+        (backend/run-loop! view-fn (assoc opts
+                                          :include-container-info true
+                                          :reload! reload-demo!))
+        (run-once! view-fn opts)))))

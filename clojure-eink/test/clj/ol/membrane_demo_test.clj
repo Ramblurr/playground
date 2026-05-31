@@ -23,6 +23,14 @@
             node))
         (all-nodes elem)))
 
+(defn- label-texts
+  [elem]
+  (->> (all-nodes elem)
+       (keep (fn [node]
+               (when (instance? membrane.ui.Label node)
+                 (:text node))))
+       set))
+
 (defn- near?
   [expected actual]
   (< (abs (- expected actual)) 0.5))
@@ -40,3 +48,22 @@
       (is (near? (/ (- 82 label-h) 2.0) (:y click-translate)))
       (is (> (gray-at gray 10 10) 240) "background should be white")
       (is (some #(< (bit-and 0xFF %) 250) (:data gray))))))
+
+(deftest kobo-more-view-option-test
+  (testing "demo runner can select the component-based Kobo More screen"
+    (let [view    (demo/view-for-options {:kobo-more? true})
+          context (backend/open-context! {:width 400 :height 540})]
+      (try
+        (let [{:keys [image]} (backend/render-view! context view {:include-container-info true})
+              gray            (project/image->gray8 image)
+              elem            (view {:container-size [400 540]})]
+          (is (= {:bounds [400 540]
+                  :has-more-title? true
+                  :has-wishlist? true
+                  :dark-pixels? true}
+                 {:bounds (ui/bounds elem)
+                  :has-more-title? (contains? (label-texts elem) "More")
+                  :has-wishlist? (contains? (label-texts elem) "My Wishlist")
+                  :dark-pixels? (boolean (some #(< (bit-and 0xFF %) 240) (:data gray)))})))
+        (finally
+          (backend/close-context! context))))))

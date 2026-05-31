@@ -10,7 +10,7 @@ cd "$ROOT"
 rm -rf "$ROOT/target/classes"
 clojure -T:build jar
 
-mkdir -p "$DIST/lib" "$DIST/src"
+mkdir -p "$DIST/lib" "$DIST/lib/java" "$DIST/src"
 chmod -R u+w "$DIST" 2>/dev/null || true
 
 jar_path=$(find "$ROOT/target" -maxdepth 1 -type f -name '*.jar' -print | sort | head -n 1)
@@ -38,6 +38,19 @@ fi
 rm -rf "$DIST/src"
 mkdir -p "$DIST/src"
 cp -R "$ROOT/src/clj" "$DIST/src/"
+
+rm -rf "$DIST/lib/java"
+mkdir -p "$DIST/lib/java"
+while IFS= read -r cp_entry; do
+  if [[ "$cp_entry" == *.jar ]]; then
+    case "$cp_entry" in
+      */org/clojure/clojure/*|*/org/clojure/spec.alpha/*|*/org/clojure/core.specs.alpha/*)
+        continue
+        ;;
+    esac
+    cp -P "$cp_entry" "$DIST/lib/java/"
+  fi
+done < <(clojure -Spath | tr ':' '\n')
 
 cat > "$DIST/run-demo.sh" <<'EOF'
 #!/bin/sh
@@ -68,7 +81,7 @@ exec "$JAVA_BIN" \
   --enable-native-access=ALL-UNNAMED \
   -Djava.awt.headless=true \
   ${JAVA_OPTS:-} \
-  -cp "$APP_DIR/src/clj:$CLOJURE_JAR:$APP_DIR/clojure-eink-demo.jar" \
+  -cp "$APP_DIR/src/clj:$APP_DIR/lib/java/*:$CLOJURE_JAR:$APP_DIR/clojure-eink-demo.jar" \
   clojure.main -m ol.project --present "$@"
 EOF
 
@@ -102,7 +115,7 @@ exec "$JAVA_BIN" \
   --enable-native-access=ALL-UNNAMED \
   -Djava.awt.headless=true \
   ${JAVA_OPTS:-} \
-  -cp "$APP_DIR/src/clj:$CLOJURE_JAR:$APP_DIR/clojure-eink-demo.jar" \
+  -cp "$APP_DIR/src/clj:$APP_DIR/lib/java/*:$CLOJURE_JAR:$APP_DIR/clojure-eink-demo.jar" \
   clojure.main -m ol.loop --present "$@"
 EOF
 
@@ -121,7 +134,7 @@ OUT=${1:-"$APP_DIR/eink-demo.png"}
 exec "$JAVA_BIN" \
   -Djava.awt.headless=true \
   ${JAVA_OPTS:-} \
-  -cp "$APP_DIR/src/clj:$CLOJURE_JAR:$APP_DIR/clojure-eink-demo.jar" \
+  -cp "$APP_DIR/src/clj:$APP_DIR/lib/java/*:$CLOJURE_JAR:$APP_DIR/clojure-eink-demo.jar" \
   clojure.main -m ol.project --png "$OUT"
 EOF
 
@@ -154,7 +167,7 @@ exec "$JAVA_BIN" \
   --enable-native-access=ALL-UNNAMED \
   -Djava.awt.headless=true \
   ${JAVA_OPTS:-} \
-  -cp "$APP_DIR/src/clj:$CLOJURE_JAR:$APP_DIR/clojure-eink-demo.jar" \
+  -cp "$APP_DIR/src/clj:$APP_DIR/lib/java/*:$CLOJURE_JAR:$APP_DIR/clojure-eink-demo.jar" \
   clojure.main -m ol.membrane-demo --present "$@"
 EOF
 
@@ -187,7 +200,7 @@ exec "$JAVA_BIN" \
   --enable-native-access=ALL-UNNAMED \
   -Djava.awt.headless=true \
   ${JAVA_OPTS:-} \
-  -cp "$APP_DIR/src/clj:$CLOJURE_JAR:$APP_DIR/clojure-eink-demo.jar" \
+  -cp "$APP_DIR/src/clj:$APP_DIR/lib/java/*:$CLOJURE_JAR:$APP_DIR/clojure-eink-demo.jar" \
   clojure.main -m ol.membrane-demo --loop --present "$@"
 EOF
 
