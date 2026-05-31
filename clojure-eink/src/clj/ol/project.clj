@@ -22,6 +22,9 @@
    :gl16 3
    :a2   4})
 
+(def render-modes
+  #{:layout :cached-layout :simple-text :rects})
+
 (defonce process-start-ns (System/nanoTime))
 
 (defn elapsed-ms
@@ -66,6 +69,18 @@
           :when (contains? timings k)]
     (log-duration! (format "render %d/%d %s" iteration total-renders label) (get timings k))))
 
+(defn- normalized-paragraph
+  [text]
+  (str/replace text #"\s+" " "))
+
+(defn- simple-lines
+  [text]
+  (->> (str/split (normalized-paragraph text) #"\s+")
+       (partition-all 8)
+       (map #(str/join " " %))
+       (take 10)
+       vec))
+
 (defn- layout-body-lines
   [^Graphics2D g paragraph ^Font body-font width height margin ^Font title-font]
   (let [attributed (java.text.AttributedString. ^String paragraph)
@@ -86,12 +101,58 @@
                  (conj layouts [layout (float margin) (float baseline)])))
         layouts))))
 
+(defn- cached-value
+  [cache cache-key load-fn]
+  (if cache
+    (if-let [entry (find @cache cache-key)]
+      (val entry)
+      (let [value (load-fn)]
+        (swap! cache assoc cache-key value)
+        value))
+    (load-fn)))
+
+(defn- draw-layout-text!
+  [^Graphics2D g ^Font title-font margin body-layouts]
+  (.setColor g Color/BLACK)
+  (.setFont g title-font)
+  (.drawString g "Clojure e-ink PoC" margin margin)
+  (doseq [[layout x baseline] body-layouts]
+    (.draw layout g (float x) (float baseline))))
+
+(defn- draw-simple-text!
+  [^Graphics2D g ^Font title-font ^Font body-font margin text]
+  (.setColor g Color/BLACK)
+  (.setFont g title-font)
+  (.drawString g "Clojure e-ink PoC" margin margin)
+  (.setFont g body-font)
+  (let [line-height (max 24 (long (* 1.25 (.getSize body-font))))
+        start-y     (+ margin (.getSize title-font) margin)]
+    (doseq [[idx line] (map-indexed vector (simple-lines text))]
+      (.drawString g ^String line margin (+ start-y (* idx line-height))))))
+
+(defn- draw-rects!
+  [^Graphics2D g width height margin]
+  (let [content-width  (- width (* 2 margin))
+        content-height (- height (* 2 margin))
+        rows           24
+        row-height     (max 8 (quot content-height rows))]
+    (dotimes [idx rows]
+      (.setColor g (if (even? idx) Color/BLACK Color/LIGHT_GRAY))
+      (.fillRect g
+                 margin
+                 (+ margin (* idx row-height))
+                 content-width
+                 (max 4 (quot row-height 2))))))
+
 (defn render-demo-frame
-  [{:keys [width height text margin font-size]
-    :or   {width  800
-           height 600
-           text   default-text
-           margin 48}}]
+  [{:keys [width height text margin font-size render-mode layout-cache]
+    :or   {width       800
+           height      600
+           text        default-text
+           margin      48
+           render-mode :layout}}]
+  (when-not (contains? render-modes render-mode)
+    (throw (ex-info (str "unknown render mode: " render-mode) {:render-mode render-mode})))
   (let [[image image-allocation-ms] (timed #(BufferedImage. width height BufferedImage/TYPE_BYTE_GRAY))
         ^Graphics2D g              (.createGraphics ^BufferedImage image)]
     (try
@@ -111,17 +172,36 @@
              #(do
                 (.setColor g Color/WHITE)
                 (.fillRect g 0 0 width height)))
-            [body-layouts text-layout-ms]
+            [text-work text-layout-ms]
             (timed
-             #(layout-body-lines g (str/replace text #"\s+" " ") body-font width height margin title-font))
+             #(case render-mode
+                :layout
+                (layout-body-lines g (normalized-paragraph text) body-font width height margin title-font)
+
+                :cached-layout
+                (let [paragraph (normalized-paragraph text)
+                      cache-key [paragraph width height margin (.getSize body-font) (.getSize title-font)]]
+                  (cached-value layout-cache
+                                cache-key
+                                (fn []
+                                  (layout-body-lines g paragraph body-font width height margin title-font))))
+
+                :simple-text
+                (simple-lines text)
+
+                :rects
+                nil))
             [_glyphs glyph-draw-ms]
             (timed
-             #(do
-                (.setColor g Color/BLACK)
-                (.setFont g title-font)
-                (.drawString g "Clojure e-ink PoC" margin margin)
-                (doseq [[layout x baseline] body-layouts]
-                  (.draw layout g (float x) (float baseline)))))]
+             #(case render-mode
+                (:layout :cached-layout)
+                (draw-layout-text! g title-font margin text-work)
+
+                :simple-text
+                (draw-simple-text! g title-font body-font margin text)
+
+                :rects
+                (draw-rects! g width height margin)))]
         {:image   image
          :timings {:image-allocation image-allocation-ms
                    :graphics-setup   graphics-setup-ms
@@ -281,6 +361,15 @@
       (throw (ex-info (str option " must be positive") {:option option :value raw})))
     n))
 
+(defn- parse-render-mode-option
+  [option value]
+  (let [raw  (option-value option value)
+        mode (keyword (str/lower-case raw))]
+    (when-not (contains? render-modes mode)
+      (throw (ex-info (str "unknown render mode: " raw)
+                      {:option option :value raw :allowed render-modes})))
+    mode))
+
 (defn parse-args
   [args]
   (loop [opts {:text         default-text
@@ -292,6 +381,7 @@
                :width        nil
                :height       nil
                :renders      1
+               :render-mode  :layout
                :waveform     :gc16
                :flash?       true
                :wait?        true}
@@ -306,6 +396,8 @@
           "--present-each" (recur (assoc opts :present? true :native? true :present-mode :each) more)
           "--renders" (recur (assoc opts :renders (parse-positive-long-option arg (first more))) (next more))
           "--repeat" (recur (assoc opts :renders (parse-positive-long-option arg (first more))) (next more))
+          "--render-mode" (recur (assoc opts :render-mode (parse-render-mode-option arg (first more))) (next more))
+          "--mode" (recur (assoc opts :render-mode (parse-render-mode-option arg (first more))) (next more))
           "--png" (recur (assoc opts :png (option-value arg (first more))) (next more))
           "--native-lib" (recur (assoc opts :native-lib (option-value arg (first more))) (next more))
           "--width" (recur (assoc opts :width (parse-positive-long-option arg (first more))) (next more))
@@ -326,6 +418,7 @@
        "  EINK_NATIVE_LIB=result-kobo-native/lib/libclojure_eink.so \\\n"
        "    clojure -J--enable-native-access=ALL-UNNAMED -M -m ol.project --present\n\n"
        "Options: --text TEXT --width N --height N --renders N --repeat N "
+       "--render-mode layout|cached-layout|simple-text|rects "
        "--present --no-present --present-last --present-each "
        "--waveform auto|du|gc16|gl16|a2 --no-flash --no-wait"))
 
@@ -370,7 +463,9 @@
                                     h))
                                 600)
                 total-renders (:renders opts)
-                render-opts (assoc opts :width width :height height)
+                layout-cache (when (= :cached-layout (:render-mode opts)) (atom {}))
+                render-opts (cond-> (assoc opts :width width :height height)
+                              layout-cache (assoc :layout-cache layout-cache))
                 last-image  (loop [iteration 1
                                    last-image nil]
                               (if (> iteration total-renders)

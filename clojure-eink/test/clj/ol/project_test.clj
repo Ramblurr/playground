@@ -45,6 +45,16 @@
               :native?      true}
              parsed)))))
 
+(deftest parse-render-mode-test
+  (testing "render mode benchmark variants"
+    (is (= :layout (:render-mode (project/parse-args []))))
+    (is (= :cached-layout (:render-mode (project/parse-args ["--render-mode" "cached-layout"]))))
+    (is (= :simple-text (:render-mode (project/parse-args ["--mode" "simple-text"]))))
+    (is (= :rects (:render-mode (project/parse-args ["--render-mode" "rects"]))))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #"unknown render mode"
+                          (project/parse-args ["--render-mode" "bogus"])))))
+
 (deftest render-demo-frame-timings-test
   (testing "render-demo-frame returns an image and per-phase timings"
     (let [render-frame (some-> (ns-resolve 'ol.project 'render-demo-frame) deref)]
