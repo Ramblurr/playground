@@ -45,6 +45,16 @@
               :native?      true}
              parsed)))))
 
+(deftest parse-args-with-initial-options-test
+  (testing "command-loop style parsing preserves unspecified base options"
+    (let [base   (project/parse-args ["--present" "--render-mode" "cached-layout" "--no-wait"])
+          parsed (project/parse-args base ["--renders" "2" "--present-last"])]
+      (is (= 2 (:renders parsed)))
+      (is (= :last (:present-mode parsed)))
+      (is (= :cached-layout (:render-mode parsed)))
+      (is (false? (:wait? parsed)))
+      (is (true? (:native? parsed))))))
+
 (deftest parse-render-mode-test
   (testing "render mode benchmark variants"
     (is (= :layout (:render-mode (project/parse-args []))))

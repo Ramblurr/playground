@@ -343,6 +343,22 @@
              "result/lib/libclojure_eink.so"
              "libclojure_eink.so"])))
 
+(defn init-native!
+  [native]
+  (check-native! native (invoke-native (:init native) (int 1) (int 0)) "eink_init"))
+
+(defn close-native!
+  [native]
+  (invoke-native (:close native)))
+
+(defn native-screen-width
+  [native]
+  (int (invoke-native (:width native))))
+
+(defn native-screen-height
+  [native]
+  (int (invoke-native (:height native))))
+
 (defn- option-value
   [option value]
   (when-not value
@@ -370,46 +386,51 @@
                       {:option option :value raw :allowed render-modes})))
     mode))
 
+(def default-options
+  {:text         default-text
+   :png          nil
+   :present?     false
+   :native?      false
+   :present-mode :none
+   :native-lib   nil
+   :width        nil
+   :height       nil
+   :renders      1
+   :render-mode  :layout
+   :waveform     :gc16
+   :flash?       true
+   :wait?        true})
+
 (defn parse-args
-  [args]
-  (loop [opts {:text         default-text
-               :png          nil
-               :present?     false
-               :native?      false
-               :present-mode :none
-               :native-lib   nil
-               :width        nil
-               :height       nil
-               :renders      1
-               :render-mode  :layout
-               :waveform     :gc16
-               :flash?       true
-               :wait?        true}
-         xs   (seq args)]
-    (if-not xs
-      opts
-      (let [[arg & more] xs]
-        (case arg
-          "--present" (recur (assoc opts :present? true :native? true :present-mode :each) more)
-          "--no-present" (recur (assoc opts :present? false :present-mode :none) more)
-          "--present-last" (recur (assoc opts :present? true :native? true :present-mode :last) more)
-          "--present-each" (recur (assoc opts :present? true :native? true :present-mode :each) more)
-          "--renders" (recur (assoc opts :renders (parse-positive-long-option arg (first more))) (next more))
-          "--repeat" (recur (assoc opts :renders (parse-positive-long-option arg (first more))) (next more))
-          "--render-mode" (recur (assoc opts :render-mode (parse-render-mode-option arg (first more))) (next more))
-          "--mode" (recur (assoc opts :render-mode (parse-render-mode-option arg (first more))) (next more))
-          "--png" (recur (assoc opts :png (option-value arg (first more))) (next more))
-          "--native-lib" (recur (assoc opts :native-lib (option-value arg (first more))) (next more))
-          "--width" (recur (assoc opts :width (parse-positive-long-option arg (first more))) (next more))
-          "--height" (recur (assoc opts :height (parse-positive-long-option arg (first more))) (next more))
-          "--text" (recur (assoc opts :text (option-value arg (first more))) (next more))
-          "--waveform" (recur (assoc opts :waveform (keyword (str/lower-case (option-value arg (first more))))) (next more))
-          "--no-flash" (recur (assoc opts :flash? false) more)
-          "--no-wait" (recur (assoc opts :wait? false) more)
-          "--help" (recur (assoc opts :help? true) more)
-          (if (str/starts-with? arg "--")
-            (throw (ex-info (str "unknown option: " arg) {:arg arg}))
-            (assoc opts :text (str/join " " xs))))))))
+  ([args]
+   (parse-args default-options args))
+  ([initial-opts args]
+   (loop [opts (merge default-options initial-opts)
+          xs   (seq args)]
+     (if-not xs
+       opts
+       (let [[arg & more] xs]
+         (case arg
+           "--present" (recur (assoc opts :present? true :native? true :present-mode :each) more)
+           "--no-present" (recur (assoc opts :present? false :present-mode :none) more)
+           "--present-last" (recur (assoc opts :present? true :native? true :present-mode :last) more)
+           "--present-each" (recur (assoc opts :present? true :native? true :present-mode :each) more)
+           "--renders" (recur (assoc opts :renders (parse-positive-long-option arg (first more))) (next more))
+           "--repeat" (recur (assoc opts :renders (parse-positive-long-option arg (first more))) (next more))
+           "--render-mode" (recur (assoc opts :render-mode (parse-render-mode-option arg (first more))) (next more))
+           "--mode" (recur (assoc opts :render-mode (parse-render-mode-option arg (first more))) (next more))
+           "--png" (recur (assoc opts :png (option-value arg (first more))) (next more))
+           "--native-lib" (recur (assoc opts :native-lib (option-value arg (first more))) (next more))
+           "--width" (recur (assoc opts :width (parse-positive-long-option arg (first more))) (next more))
+           "--height" (recur (assoc opts :height (parse-positive-long-option arg (first more))) (next more))
+           "--text" (recur (assoc opts :text (option-value arg (first more))) (next more))
+           "--waveform" (recur (assoc opts :waveform (keyword (str/lower-case (option-value arg (first more))))) (next more))
+           "--no-flash" (recur (assoc opts :flash? false) more)
+           "--no-wait" (recur (assoc opts :wait? false) more)
+           "--help" (recur (assoc opts :help? true) more)
+           (if (str/starts-with? arg "--")
+             (throw (ex-info (str "unknown option: " arg) {:arg arg}))
+             (assoc opts :text (str/join " " xs)))))))))
 
 (defn usage
   []
@@ -430,6 +451,58 @@
     :none false
     false))
 
+(defn benchmark-renders!
+  [opts]
+  (let [native        (:native opts)
+        native-lib    (:native-lib opts)
+        width         (or (:width opts) 800)
+        height        (or (:height opts) 600)
+        total-renders (:renders opts)
+        layout-cache  (when (= :cached-layout (:render-mode opts)) (atom {}))
+        render-opts   (cond-> (assoc opts :width width :height height)
+                        layout-cache (assoc :layout-cache layout-cache))
+        last-image    (loop [iteration 1
+                             last-image nil]
+                        (if (> iteration total-renders)
+                          last-image
+                          (do
+                            (log-time! (format "render %d/%d starting Java2D render %dx%d"
+                                               iteration
+                                               total-renders
+                                               width
+                                               height))
+                            (let [[frame total-render-ms] (timed #(render-demo-frame render-opts))
+                                  {:keys [image timings]} frame
+                                  [gray gray8-ms]         (timed #(image->gray8 image))
+                                  present?                (and native
+                                                               (should-present-iteration? (:present-mode opts)
+                                                                                          iteration
+                                                                                          total-renders))
+                                  present-ms              (when present?
+                                                            (log-time! (format "render %d/%d starting native present"
+                                                                               iteration
+                                                                               total-renders))
+                                                            (let [[_present rv-ms] (timed #(present-gray8! native gray opts))]
+                                                              rv-ms))
+                                  all-timings             (cond-> (assoc timings
+                                                                         :total-render total-render-ms
+                                                                         :image->gray8 gray8-ms)
+                                                            present-ms (assoc :native-present present-ms))]
+                              (log-render-timings! iteration total-renders all-timings)
+                              (when present?
+                                (log-time! (format "render %d/%d finished native present" iteration total-renders)))
+                              (recur (inc iteration) image)))))]
+    (when-let [png (:png opts)]
+      (log-time! "starting PNG write")
+      (println "wrote" (write-png! last-image png))
+      (log-time! "finished PNG write"))
+    (if native
+      (println "benchmarked" total-renders "render(s)" width "x" height
+               "via" native-lib "present-mode" (name (:present-mode opts)))
+      (println "benchmarked" total-renders "render(s)" width "x" height
+               "without native present"))
+    last-image))
+
 (defn -main
   [& args]
   (log-time! "entered ol.project/-main")
@@ -447,67 +520,28 @@
             initialized? (volatile! false)]
         (try
           (when native
-            (check-native! native (invoke-native (:init native) (int 1) (int 0)) "eink_init")
+            (init-native! native)
             (vreset! initialized? true)
             (log-time! "initialized FBInk/native backend"))
-          (let [width       (or (:width opts)
-                                (when native
-                                  (let [w (int (invoke-native (:width native)))]
-                                    (log-time! (str "queried screen width: " w))
-                                    w))
-                                800)
-                height      (or (:height opts)
-                                (when native
-                                  (let [h (int (invoke-native (:height native)))]
-                                    (log-time! (str "queried screen height: " h))
-                                    h))
-                                600)
-                total-renders (:renders opts)
-                layout-cache (when (= :cached-layout (:render-mode opts)) (atom {}))
-                render-opts (cond-> (assoc opts :width width :height height)
-                              layout-cache (assoc :layout-cache layout-cache))
-                last-image  (loop [iteration 1
-                                   last-image nil]
-                              (if (> iteration total-renders)
-                                last-image
-                                (do
-                                  (log-time! (format "render %d/%d starting Java2D render %dx%d"
-                                                     iteration
-                                                     total-renders
-                                                     width
-                                                     height))
-                                  (let [[frame total-render-ms] (timed #(render-demo-frame render-opts))
-                                        {:keys [image timings]} frame
-                                        [gray gray8-ms]         (timed #(image->gray8 image))
-                                        present?                (and native
-                                                                     (should-present-iteration? (:present-mode opts)
-                                                                                                iteration
-                                                                                                total-renders))
-                                        present-ms              (when present?
-                                                                  (log-time! (format "render %d/%d starting native present"
-                                                                                     iteration
-                                                                                     total-renders))
-                                                                  (let [[_present rv-ms] (timed #(present-gray8! native gray opts))]
-                                                                    rv-ms))
-                                        all-timings             (cond-> (assoc timings
-                                                                               :total-render total-render-ms
-                                                                               :image->gray8 gray8-ms)
-                                                                  present-ms (assoc :native-present present-ms))]
-                                    (log-render-timings! iteration total-renders all-timings)
-                                    (when present?
-                                      (log-time! (format "render %d/%d finished native present" iteration total-renders)))
-                                    (recur (inc iteration) image)))))]
-            (when-let [png (:png opts)]
-              (log-time! "starting PNG write")
-              (println "wrote" (write-png! last-image png))
-              (log-time! "finished PNG write"))
-            (if native
-              (println "benchmarked" total-renders "render(s)" width "x" height
-                       "via" native-lib "present-mode" (name (:present-mode opts)))
-              (println "benchmarked" total-renders "render(s)" width "x" height
-                       "without native present")))
+          (let [width  (or (:width opts)
+                           (when native
+                             (let [w (native-screen-width native)]
+                               (log-time! (str "queried screen width: " w))
+                               w))
+                           800)
+                height (or (:height opts)
+                           (when native
+                             (let [h (native-screen-height native)]
+                               (log-time! (str "queried screen height: " h))
+                               h))
+                           600)]
+            (benchmark-renders! (assoc opts
+                                       :native native
+                                       :native-lib native-lib
+                                       :width width
+                                       :height height)))
           (finally
             (when (and native @initialized?)
               (log-time! "closing native backend")
-              (invoke-native (:close native))
+              (close-native! native)
               (log-time! "closed native backend"))))))))
