@@ -1,9 +1,13 @@
 (ns ol.membrane.eink-backend-test
   (:require
+   [clojure.java.io :as io]
    [clojure.test :refer [deftest is testing]]
+   [membrane.toolkit :as tk]
    [membrane.ui :as ui]
    [ol.membrane.eink-backend :as backend]
-   [ol.project :as project]))
+   [ol.project :as project])
+  (:import
+   [javax.imageio ImageIO]))
 
 
 (deftest draw-basic-ui-to-gray-image-test
@@ -142,3 +146,53 @@
             (is (= 1 (count @calls)))))
         (finally
           (backend/close-context! context))))))
+
+(defn- current-toolkit
+  []
+  (some-> (ns-resolve 'ol.membrane.eink-backend 'toolkit) deref))
+
+(deftest toolkit-conformance-test
+  (testing "e-ink backend exposes a Membrane toolkit object"
+    (let [toolkit (current-toolkit)
+          font    (ui/font nil 24)]
+      (is (some? toolkit) "ol.membrane.eink-backend/toolkit should exist")
+      (when toolkit
+        (is (= {:toolkit?      true
+                :run?          true
+                :run-sync?     true
+                :font-metrics? true
+                :advance-x?    true
+                :line-height?  true
+                :save-image?   true}
+               {:toolkit?      (tk/toolkit? toolkit)
+                :run?          (satisfies? tk/IToolkitRun toolkit)
+                :run-sync?     (satisfies? tk/IToolkitRunSync toolkit)
+                :font-metrics? (satisfies? tk/IToolkitFontMetrics toolkit)
+                :advance-x?    (satisfies? tk/IToolkitFontAdvanceX toolkit)
+                :line-height?  (satisfies? tk/IToolkitFontLineHeight toolkit)
+                :save-image?   (satisfies? tk/IToolkitSaveImage toolkit)}))
+        (is (= (backend/font-metrics font)
+               (tk/font-metrics toolkit font)))
+        (is (= (backend/font-line-height font)
+               (tk/font-line-height toolkit font)))
+        (is (= (backend/font-advance-x font "Hello")
+               (tk/font-advance-x toolkit font "Hello")))))))
+
+(deftest toolkit-save-image-test
+  (testing "toolkit save-image renders a PNG at the requested size"
+    (let [toolkit (current-toolkit)
+          dest    (str (java.nio.file.Files/createTempFile "membrane-toolkit" ".png"
+                                                              (make-array java.nio.file.attribute.FileAttribute 0)))]
+      (is (some? toolkit) "ol.membrane.eink-backend/toolkit should exist")
+      (try
+        (when toolkit
+          (let [saved-path (tk/save-image toolkit
+                                          dest
+                                          (ui/with-color [0 0 0]
+                                            (ui/rectangle 12 8))
+                                          [64 32])
+                image      (ImageIO/read (io/file saved-path))]
+            (is (= (.getAbsolutePath (io/file dest)) saved-path))
+            (is (= [64 32] [(.getWidth image) (.getHeight image)]))))
+        (finally
+          (io/delete-file dest true))))))

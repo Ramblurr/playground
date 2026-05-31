@@ -1,6 +1,7 @@
 (ns ol.membrane.eink-backend
   (:require
    [clojure.string :as str]
+   [membrane.toolkit :as tk]
    [membrane.ui :as ui]
    [ol.project :as project])
   (:import
@@ -279,6 +280,22 @@
       image
       (finally
         (.dispose ^Graphics2D g)))))
+
+(defn- positive-int-ceil
+  [n]
+  (max 1 (int (Math/ceil (double n)))))
+
+(defn- element-size
+  [elem]
+  (let [[width height] (ui/bounds elem)]
+    [(positive-int-ceil width) (positive-int-ceil height)]))
+
+(defn- toolkit-save-image!
+  [dest elem size]
+  (let [[width height] (or size (element-size elem))
+        image          (render-to-image! elem {:width  width
+                                                :height height})]
+    (project/write-png! image dest)))
 
 (defn snapshot-gray8
   "Return a compact, independent copy of a gray8 buffer."
@@ -564,10 +581,43 @@
   ([view-fn opts]
    (run-loop! view-fn opts)))
 
+(def toolkit
+  (reify
+    tk/IToolkit
+
+    tk/IToolkitRun
+    (run [_ view-fn]
+      (run-loop! view-fn {}))
+    (run [_ view-fn opts]
+      (run-loop! view-fn opts))
+
+    tk/IToolkitRunSync
+    (run-sync [_ view-fn]
+      (run-loop! view-fn {}))
+    (run-sync [_ view-fn opts]
+      (run-loop! view-fn opts))
+
+    tk/IToolkitFontMetrics
+    (font-metrics [_ font]
+      (ol.membrane.eink-backend/font-metrics font))
+
+    tk/IToolkitFontAdvanceX
+    (font-advance-x [_ font s]
+      (ol.membrane.eink-backend/font-advance-x font s))
+
+    tk/IToolkitFontLineHeight
+    (font-line-height [_ font]
+      (ol.membrane.eink-backend/font-line-height font))
+
+    tk/IToolkitSaveImage
+    (save-image [_ dest elem]
+      (toolkit-save-image! dest elem nil))
+    (save-image [_ dest elem size]
+      (toolkit-save-image! dest elem size))))
+
 (defn present!
   [native elem opts]
   (let [image (render-to-image! elem opts)
         gray  (project/image->gray8 image)]
     (project/present-gray8! native gray opts)
     image))
-
