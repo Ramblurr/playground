@@ -152,7 +152,7 @@ src/membrane/toolkit.cljc
 Custom backend code should live outside the vendored `membrane.*` namespace tree:
 
 ```text
-src/clj/ol/membrane.clj
+src/clj/ol/membrane/eink_backend.clj
 ```
 
 Options for `component.cljc`:
@@ -165,7 +165,7 @@ Options for `java2d.clj`:
 
 - Do not use it directly because it includes Swing/window/input code that is irrelevant on Kobo.
 - Use it as a reference for primitive drawing methods.
-- Copy only the relevant rendering ideas into `ol.membrane`, adapted to grayscale image + FBInk present.
+- Copy only the relevant rendering ideas into `ol.membrane.eink-backend`, adapted to grayscale image + FBInk present.
 
 No `src-java` files appear necessary for the basic Java2D/FBInk backend. `src-java/com/phronemophobic/membrane/Skia.java` is for the Skia backend, not this path.
 
@@ -210,7 +210,7 @@ Do not vendor the entire Membrane tree.
 Create custom backend code outside `src/clj/membrane/`:
 
 ```text
-src/clj/ol/membrane.clj
+src/clj/ol/membrane/eink_backend.clj
 ```
 
 The backend should expose a small API similar to:
@@ -380,14 +380,14 @@ Stop and call for review when all are true:
 ## Open questions
 
 - Should `membrane.component` be vendored immediately, or wait until the first pure `membrane.ui` render proof works?
-- Resolved 2026-05-31: keep `src/clj/membrane/` as vendored upstream source only; put custom backend code in `ol.membrane`.
+- Resolved 2026-05-31: keep `src/clj/membrane/` as vendored upstream source only; put custom backend code in `ol.membrane.eink-backend`; keep demo/Poc UI in `ol.membrane-demo`.
 - Should text bounds be cached from the start, or only if label measurement is slow on Kobo?
 - Should the demo use `ui/button` directly or a manually composed button to reduce dependencies during first proof?
 
 ## Initial implementation plan
 
 1. Vendor `membrane.ui` and `membrane.toolkit` only.
-2. Create `ol.membrane` from the drawing portions of `membrane.java2d`, excluding Swing/input/window code.
+2. Create `ol.membrane.eink-backend` from the drawing portions of `membrane.java2d`, excluding Swing/input/window code.
 3. Add a tiny demo namespace that renders label + rounded rectangle/button.
 4. Render locally to PNG first for quick smoke testing.
 5. Wire FBInk presentation using existing `ol.project` native functions.
@@ -401,3 +401,4 @@ Stop and call for review when all are true:
 - 2026-05-31 13:35 CEST — User review noted the first demo used inverted normal polarity: black background with white foreground. Added tests requiring a white background, a `Click Me` label, and centered label placement inside the button. Updated the demo to use normal e-reader polarity: white background, black title/body text, light button fill with black outline, and centered `Click Me` label. RED was verified first with `bb test --focus membrane.fbink-test`, then GREEN after the fix.
 - 2026-05-31 13:39 CEST — Repackaged and rsynced the normal-polarity demo to Kobo. Verified on device with `time ./run-membrane-demo.sh --no-wait --no-flash`: Membrane render started at `[12707.1 ms]`, finished at `[14261.1 ms]` (~1.55 s), native present ran from `[14263.0 ms]` to `[15394.5 ms]` (~1.13 s), and the command reported `presented Membrane demo 1264 x 1680`. Captured and inspected `screenshots/kobo-screen-20260531-133852.png`; it shows normal white background, black text, and a centered `Click Me` button.
 - 2026-05-31 13:44 CEST — User clarified namespace ownership: `src/clj/membrane/` must remain vendored upstream source only, without local custom backend code. Moved the custom FBInk renderer from `membrane.fbink` to `ol.membrane`, moved tests to `ol.membrane-test`, and left demo code in `ol.membrane-demo`. Verified `src/clj/membrane/ui.cljc` and `src/clj/membrane/toolkit.cljc` still match upstream exactly. Also fixed `scripts/package-kobo-dist.sh` to clear `target/classes` before building, so stale deleted classes such as the old `membrane/fbink.clj` cannot remain in the packaged jar. Verified `bb test`, local `ol.membrane-demo` PNG smoke, and packaged jar/source contents.
+- 2026-05-31 13:53 CEST — User clarified stricter separation between backend implementation and demo/test/PoC code. Renamed actual backend namespace from `ol.membrane` to `ol.membrane.eink-backend` at `src/clj/ol/membrane/eink_backend.clj`. Moved demo UI construction (`demo-ui` and centered label helper) into `ol.membrane-demo`. Split tests so backend rendering tests live in `ol.membrane.eink-backend-test` and demo shape/polarity tests live in `ol.membrane-demo-test`. Verified with `bb test`, local PNG smoke via `ol.membrane-demo`, and package inspection showing `ol/membrane/eink_backend.clj` plus no stale `ol/membrane.clj` or `membrane/fbink.clj`.
