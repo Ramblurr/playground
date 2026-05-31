@@ -8,7 +8,7 @@ The Kobo rendering path works:
 Clojure -> Java2D grayscale BufferedImage -> Java FFM -> libclojure_eink.so -> FBInk -> /dev/fb0
 ```
 
-Cold startup remains slow, but a long-lived JVM is acceptable for the target app. Warm rendering looks viable when `TextLayout` results are cached.
+Cold startup remains slow, but a long-lived JVM is acceptable for the target app. Warm rendering looks viable when `TextLayout` results are cached and the render target image is reused.
 
 ## Current finding
 
@@ -16,8 +16,9 @@ On Kobo (`1264 x 1680`):
 
 - default `LineBreakMeasurer` warm renders: about `0.8-1.1 s`;
 - cached-layout warm renders: about `20-50 ms`;
-- cached-layout final present with `--no-wait --no-flash`: about `213-221 ms`;
-- cached-layout final present with default wait: about `793 ms`.
+- cached-layout plus reused `BufferedImage`: latest warm render about `18.5 ms`;
+- cached-layout plus reused image with `--no-wait --no-flash` present: about `18.5 ms` render + `192.5 ms` present;
+- cached-layout final present with default wait: about `793 ms` present after a `~22 ms` render.
 
 See [`PERF_NOTES.md`](PERF_NOTES.md) for benchmark commands and detailed timings.
 
@@ -43,7 +44,7 @@ Run the long-lived reload loop:
 
 ```sh
 cd /mnt/onboard/clojure-eink-demo
-./run-loop.sh --render-mode cached-layout --no-wait --no-flash
+./run-loop.sh --render-mode cached-layout --reuse-image --no-wait --no-flash
 ```
 
 Loop commands:
@@ -59,7 +60,6 @@ quit
 
 ## Next work
 
-- Reuse the `BufferedImage` between renders.
 - Turn cached layouts into a real page cache or display list.
 - Add a small control protocol that is easier to drive remotely than stdin.
 - Decide whether Java2D text quality/performance is good enough before exploring native FreeType/HarfBuzz.

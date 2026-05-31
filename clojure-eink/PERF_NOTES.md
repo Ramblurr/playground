@@ -7,10 +7,10 @@ A long-lived JVM looks viable if we cache text layout work. Cold startup and the
 Best measured warm path on Kobo:
 
 ```text
-long-lived JVM + cached TextLayout + no-wait/no-flash present
-render total:    ~27-39 ms
-native present:  ~213-221 ms
-total warm draw: ~250 ms plus command overhead
+long-lived JVM + cached TextLayout + reused BufferedImage + no-wait/no-flash present
+render total:    ~18.5 ms
+native present:  ~192.5 ms
+total warm draw: ~211 ms plus command overhead
 ```
 
 With normal wait enabled, cached rendering still meets the page-turn target in the measured run:
@@ -36,6 +36,7 @@ total:          ~815 ms
 --render-mode simple-text   draw strings without LineBreakMeasurer
 --render-mode rects         fill rectangle bands, no text
 --no-wait                   pass wait=false to native present
+--reuse-image               reuse a compatible BufferedImage between renders
 --no-flash                  pass flash=false to native present
 ```
 
@@ -170,7 +171,7 @@ Example on Kobo:
 
 ```sh
 cd /mnt/onboard/clojure-eink-demo
-./run-loop.sh --render-mode cached-layout --no-wait --no-flash
+./run-loop.sh --render-mode cached-layout --reuse-image --no-wait --no-flash
 ```
 
 Then type commands:
@@ -193,9 +194,10 @@ Override it with `EINK_RELOAD_FILE` if needed.
 Measured loop behavior:
 
 ```text
-first cached-layout render command: 7301.0 ms
-second cached-layout render command: 27.3 ms
+first cached-layout render command:                  7301.0 ms
+second cached-layout render command:                   27.3 ms
 second command with no-wait present: render 34.0 ms, present 220.5 ms
+second command with reused image:     render 18.5 ms, present 192.5 ms
 ```
 
 After `reload`, the next first render was about `1323.7 ms`; the following render returned to about `34.1 ms`. The JVM, native backend, fonts, and JIT stay warm, but the layout cache is cleared on reload.
@@ -210,4 +212,5 @@ Use this direction next:
 2. cache page layout objects or a page display list;
 3. render cached layouts into a reused `BufferedImage`;
 4. only recompute layout when content, width, font, margins, or render settings change;
-5. use `reload` during development to load rsynced Clojure code.
+5. use `reload` during development to load rsynced Clojure code;
+6. next, replace the stdin loop with a tiny socket/control protocol for real app integration.
