@@ -129,10 +129,10 @@ Do not wait for supervisor approval between ordinary numbered sections unless bl
 
 ### 5. Skia primitive rendering
 
-- [ ] Create a wrapped `kGray_8_SkColorType` raster surface over native-owned pixels.
-- [ ] Implement save/restore/translate/scale/clip/color/style/stroke-width calls.
-- [ ] Implement rectangle, rounded rectangle, and path drawing.
-- [ ] Add host tests that drawing black geometry makes copied gray8 bytes non-white.
+- [x] Create a wrapped `kGray_8_SkColorType` raster surface over native-owned pixels.
+- [x] Implement save/restore/translate/scale/clip/color/style/stroke-width calls.
+- [x] Implement rectangle, rounded rectangle, and path drawing.
+- [x] Add host tests that drawing black geometry makes copied gray8 bytes non-white.
 
 ### 6. Font directory and text stack
 
@@ -363,3 +363,34 @@ Test/evidence commands:
 - `unset EINK_SKIA_NATIVE_LIB; bb test` => `37 tests, 103 assertions, 0 failures` (native-dependent tests skip when env is absent).
 
 Section 4 blockers: none. Next section: Skia primitive rendering.
+
+## Section 5 checkpoint notes
+
+Completed in resumed Ralph iteration after the iteration-6 handoff.
+
+Changed paths for this section:
+- `flake.nix` (passes `skia-native`/`skia` into the host and Kobo Skia bridge packages).
+- `nix/pkgs/clojure-eink-skia-bridge/package.nix` (links the bridge against Skia and copies `libsk*.so*` beside `libclojure_eink_skia.so`).
+- `src/native/eink_skia_native.cpp` (Skia gray8 surface wrapping and primitive drawing implementation).
+- `test/clj/ol/membrane/skia_eink_backend_test.clj` (host tests for visible primitive output and order-stable last-error loading test).
+- `.ralph/skia-membrane-fbink-poc.md` (this evidence log).
+
+Implementation notes:
+- The Skia bridge derivation now accepts a `skia` input, adds Skia headers, defines `SKIA_DLL`, links `-lskia`, sets an `$ORIGIN` runtime path, and installs Skia shared libraries next to the bridge library.
+- `eink_skia_context` now owns a `SkSurfaces::WrapPixels` surface over its native-owned compact gray8 pixel vector with `kGray_8_SkColorType` and `kOpaque_SkAlphaType`.
+- The context keeps a `SkCanvas*` and `SkPaint`; save/restore, translate, scale, clip-rect, color, style, stroke-width, rectangle, rounded rectangle, and path drawing are implemented.
+- `eink_skia_draw_path` uses `SkPathBuilder` instead of direct `SkPath::moveTo`/`lineTo`/`close` calls because the earlier direct calls left unresolved symbols with the component `libskia.so`.
+- The first final verification run found an order-dependent test expectation: `eink_skia_last_error` can retain a previous native error after randomized tests. The loader test now verifies that the symbol is callable and returns a string instead of requiring an empty string.
+- Text and present functions remain stubs for later sections.
+
+Test/evidence commands:
+- RED before implementation: `EINK_SKIA_NATIVE_LIB=result-skia-native/lib/libclojure_eink_skia.so bb test --focus ...native-draw...` failed as expected with `-ENOSYS` stubs/no dark pixels.
+- `nix build .#clojure-eink-skia-bridge -o result-skia-native` => success.
+- `ldd -r result-skia-native/lib/libclojure_eink_skia.so | tail -30` => no `undefined symbol` lines; `libskia.so` resolves from the bridge output directory.
+- `EINK_SKIA_NATIVE_LIB=result-skia-native/lib/libclojure_eink_skia.so bb test --focus ol.membrane.skia-eink-backend-test` => `11 tests, 48 assertions, 0 failures`.
+- `cljfmt check src/clj/ol/membrane/skia_eink_backend.clj test/clj/ol/membrane/skia_eink_backend_test.clj` => `All source files formatted correctly`.
+- `EINK_SKIA_NATIVE_LIB=result-skia-native/lib/libclojure_eink_skia.so bb test` => `40 tests, 142 assertions, 0 failures`.
+- `unset EINK_SKIA_NATIVE_LIB; bb test` => `40 tests, 106 assertions, 0 failures`.
+- `nix build .#clojure-eink-skia-bridge-kobo -o result-kobo-skia-native` => success.
+
+Section 5 blockers: none. Next section: font directory and SkParagraph-backed text stack.

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <cmath>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
@@ -10,6 +11,18 @@
 #include <new>
 #include <string>
 #include <vector>
+
+#include "core/SkCanvas.h"
+#include "core/SkColor.h"
+#include "core/SkImageInfo.h"
+#include "core/SkPaint.h"
+#include "core/SkPath.h"
+#include "core/SkPathBuilder.h"
+#include "core/SkRect.h"
+#include "core/SkRRect.h"
+#include "core/SkRefCnt.h"
+#include "core/SkSurface.h"
+#include "core/SkTypes.h"
 
 namespace {
 
@@ -21,6 +34,9 @@ struct eink_skia_context {
     int stride;
     std::vector<uint8_t> pixels;
     std::vector<uint8_t> previous_pixels;
+    sk_sp<SkSurface> surface;
+    SkCanvas *canvas;
+    SkPaint paint;
     std::string default_family;
 };
 
@@ -47,6 +63,26 @@ int not_implemented(const char *function_name) {
     return fail_with_code(ENOSYS, "%s: not implemented", function_name);
 }
 
+uint8_t color_component(float value) {
+    if (!std::isfinite(value)) {
+        value = 0.0f;
+    }
+    float clamped = std::clamp(value, 0.0f, 1.0f);
+    return static_cast<uint8_t>(std::lround(clamped * 255.0f));
+}
+
+SkPaint::Style decode_style(int style) {
+    switch (style) {
+        case 1:
+            return SkPaint::kStroke_Style;
+        case 2:
+            return SkPaint::kStrokeAndFill_Style;
+        case 0:
+        default:
+            return SkPaint::kFill_Style;
+    }
+}
+
 bool checked_buffer_len(int width, int height, size_t *out_len) {
     if (width <= 0 || height <= 0) {
         return false;
@@ -68,6 +104,17 @@ eink_skia_context *as_context(void *ctx, const char *function_name) {
         return nullptr;
     }
     return static_cast<eink_skia_context *>(ctx);
+}
+
+int ensure_positive_rect(const char *function_name, float width, float height) {
+    if (!(width > 0.0f) || !(height > 0.0f)) {
+        return fail_with_code(EINVAL,
+                              "%s: invalid rectangle width=%g height=%g",
+                              function_name,
+                              static_cast<double>(width),
+                              static_cast<double>(height));
+    }
+    return 0;
 }
 
 } // namespace
@@ -95,7 +142,23 @@ void *eink_skia_create(int width,
         ctx->stride = width;
         ctx->pixels.assign(pixel_count, 0xFF);
         ctx->previous_pixels.assign(pixel_count, 0xFF);
+        ctx->canvas = nullptr;
+        ctx->paint.setAntiAlias(true);
+        ctx->paint.setStyle(SkPaint::kFill_Style);
+        ctx->paint.setColor(SK_ColorBLACK);
         ctx->default_family = default_family != nullptr ? default_family : "";
+
+        SkImageInfo info = SkImageInfo::Make(width,
+                                             height,
+                                             kGray_8_SkColorType,
+                                             kOpaque_SkAlphaType);
+        ctx->surface = SkSurfaces::WrapPixels(info, ctx->pixels.data(), static_cast<size_t>(ctx->stride));
+        if (!ctx->surface) {
+            delete ctx;
+            set_error("eink_skia_create: failed to wrap gray8 pixels width=%d height=%d", width, height);
+            return nullptr;
+        }
+        ctx->canvas = ctx->surface->getCanvas();
         clear_error();
         return ctx;
     } catch (const std::bad_alloc &) {
@@ -160,84 +223,159 @@ int eink_skia_clear(void *ctx, unsigned char gray) {
 }
 
 int eink_skia_save(void *ctx) {
-    (void)ctx;
-    return not_implemented("eink_skia_save");
+    eink_skia_context *context = as_context(ctx, "eink_skia_save");
+    if (context == nullptr) {
+        return -EINVAL;
+    }
+
+    context->canvas->save();
+    clear_error();
+    return 0;
 }
 
 int eink_skia_restore(void *ctx) {
-    (void)ctx;
-    return not_implemented("eink_skia_restore");
+    eink_skia_context *context = as_context(ctx, "eink_skia_restore");
+    if (context == nullptr) {
+        return -EINVAL;
+    }
+
+    context->canvas->restore();
+    clear_error();
+    return 0;
 }
 
 int eink_skia_translate(void *ctx, float x, float y) {
-    (void)ctx;
-    (void)x;
-    (void)y;
-    return not_implemented("eink_skia_translate");
+    eink_skia_context *context = as_context(ctx, "eink_skia_translate");
+    if (context == nullptr) {
+        return -EINVAL;
+    }
+
+    context->canvas->translate(x, y);
+    clear_error();
+    return 0;
 }
 
 int eink_skia_scale(void *ctx, float sx, float sy) {
-    (void)ctx;
-    (void)sx;
-    (void)sy;
-    return not_implemented("eink_skia_scale");
+    eink_skia_context *context = as_context(ctx, "eink_skia_scale");
+    if (context == nullptr) {
+        return -EINVAL;
+    }
+
+    context->canvas->scale(sx, sy);
+    clear_error();
+    return 0;
 }
 
 int eink_skia_clip_rect(void *ctx, float x, float y, float width, float height) {
-    (void)ctx;
-    (void)x;
-    (void)y;
-    (void)width;
-    (void)height;
-    return not_implemented("eink_skia_clip_rect");
+    eink_skia_context *context = as_context(ctx, "eink_skia_clip_rect");
+    if (context == nullptr) {
+        return -EINVAL;
+    }
+    int valid = ensure_positive_rect("eink_skia_clip_rect", width, height);
+    if (valid != 0) {
+        return valid;
+    }
+
+    context->canvas->clipRect(SkRect::MakeXYWH(x, y, width, height), true);
+    clear_error();
+    return 0;
 }
 
 int eink_skia_set_color(void *ctx, float r, float g, float b, float a) {
-    (void)ctx;
-    (void)r;
-    (void)g;
-    (void)b;
-    (void)a;
-    return not_implemented("eink_skia_set_color");
+    eink_skia_context *context = as_context(ctx, "eink_skia_set_color");
+    if (context == nullptr) {
+        return -EINVAL;
+    }
+
+    context->paint.setColor(SkColorSetARGB(color_component(a),
+                                           color_component(r),
+                                           color_component(g),
+                                           color_component(b)));
+    clear_error();
+    return 0;
 }
 
 int eink_skia_set_style(void *ctx, int style) {
-    (void)ctx;
-    (void)style;
-    return not_implemented("eink_skia_set_style");
+    eink_skia_context *context = as_context(ctx, "eink_skia_set_style");
+    if (context == nullptr) {
+        return -EINVAL;
+    }
+
+    context->paint.setStyle(decode_style(style));
+    clear_error();
+    return 0;
 }
 
 int eink_skia_set_stroke_width(void *ctx, float width) {
-    (void)ctx;
-    (void)width;
-    return not_implemented("eink_skia_set_stroke_width");
+    eink_skia_context *context = as_context(ctx, "eink_skia_set_stroke_width");
+    if (context == nullptr) {
+        return -EINVAL;
+    }
+    if (!(width >= 0.0f)) {
+        return fail_with_code(EINVAL,
+                              "eink_skia_set_stroke_width: invalid width=%g",
+                              static_cast<double>(width));
+    }
+
+    context->paint.setStrokeWidth(width);
+    clear_error();
+    return 0;
 }
 
 int eink_skia_draw_rect(void *ctx, float x, float y, float width, float height) {
-    (void)ctx;
-    (void)x;
-    (void)y;
-    (void)width;
-    (void)height;
-    return not_implemented("eink_skia_draw_rect");
+    eink_skia_context *context = as_context(ctx, "eink_skia_draw_rect");
+    if (context == nullptr) {
+        return -EINVAL;
+    }
+    int valid = ensure_positive_rect("eink_skia_draw_rect", width, height);
+    if (valid != 0) {
+        return valid;
+    }
+
+    context->canvas->drawRect(SkRect::MakeXYWH(x, y, width, height), context->paint);
+    clear_error();
+    return 0;
 }
 
 int eink_skia_draw_round_rect(void *ctx, float x, float y, float width, float height, float radius) {
-    (void)ctx;
-    (void)x;
-    (void)y;
-    (void)width;
-    (void)height;
-    (void)radius;
-    return not_implemented("eink_skia_draw_round_rect");
+    eink_skia_context *context = as_context(ctx, "eink_skia_draw_round_rect");
+    if (context == nullptr) {
+        return -EINVAL;
+    }
+    int valid = ensure_positive_rect("eink_skia_draw_round_rect", width, height);
+    if (valid != 0) {
+        return valid;
+    }
+
+    SkScalar r = std::max(0.0f, radius);
+    context->canvas->drawRoundRect(SkRect::MakeXYWH(x, y, width, height), r, r, context->paint);
+    clear_error();
+    return 0;
 }
 
 int eink_skia_draw_path(void *ctx, const float *xy_pairs, int point_count, int closed) {
-    (void)ctx;
-    (void)xy_pairs;
-    (void)point_count;
-    (void)closed;
-    return not_implemented("eink_skia_draw_path");
+    eink_skia_context *context = as_context(ctx, "eink_skia_draw_path");
+    if (context == nullptr) {
+        return -EINVAL;
+    }
+    if (xy_pairs == nullptr) {
+        return fail_with_code(EINVAL, "eink_skia_draw_path: xy_pairs is NULL");
+    }
+    if (point_count <= 0) {
+        return fail_with_code(EINVAL, "eink_skia_draw_path: invalid point_count=%d", point_count);
+    }
+
+    SkPathBuilder builder;
+    builder.moveTo(xy_pairs[0], xy_pairs[1]);
+    for (int idx = 1; idx < point_count; ++idx) {
+        builder.lineTo(xy_pairs[idx * 2], xy_pairs[idx * 2 + 1]);
+    }
+    if (closed != 0) {
+        builder.close();
+    }
+    context->canvas->drawPath(builder.detach(), context->paint);
+    clear_error();
+    return 0;
 }
 
 int eink_skia_text_bounds(void *ctx,

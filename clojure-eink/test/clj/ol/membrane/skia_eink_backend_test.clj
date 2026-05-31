@@ -98,6 +98,27 @@
       {:rv    rv
        :bytes (mapv #(bit-and 0xFF %) dst)})))
 
+(defn- byte-at
+  [bytes width x y]
+  (nth bytes (+ x (* y width))))
+
+(defn- dark?
+  [b]
+  (< b 250))
+
+(defn- draw-path
+  [native ctx points closed?]
+  (with-open [arena (Arena/ofConfined)]
+    (let [values  (mapcat identity points)
+          segment (.allocate arena (long (* 4 (count values))) 4)]
+      (doseq [[idx value] (map-indexed vector values)]
+        (.set segment ValueLayout/JAVA_FLOAT (long (* idx 4)) (float value)))
+      (backend/invoke-native (:draw-path native)
+                             ctx
+                             segment
+                             (int (count points))
+                             (int (if closed? 1 0))))))
+
 (deftest default-native-lib-keeps-skia-env-separate-test
   (testing "Skia native discovery uses EINK_SKIA_NATIVE_LIB and never EINK_NATIVE_LIB"
     (is (= {:skia-env-wins   "skia.so"
@@ -132,7 +153,7 @@
         (is (= []
                (remove #(instance? MethodHandle %)
                        [(:last-error native)])))
-        (is (= "" (backend/native-last-error native)))))
+        (is (string? (backend/native-last-error native)))))
     (is true "skipped: EINK_SKIA_NATIVE_LIB is absent")))
 
 (deftest required-skia-abi-surface-test
@@ -201,3 +222,62 @@
                                                    1)))))
                      {:iterations 0 :failures 0}
                      (range 25)))))))
+
+(deftest native-draw-rect-makes-gray8-nonwhite-test
+  (with-test-native [native]
+    (testing "drawing a black filled rectangle changes gray8 pixels from white"
+      (let [ctx (create-ctx native 32 16)]
+        (try
+          (is (= 0 (backend/invoke-native (:clear native) ctx (unchecked-byte 255))))
+          (is (= 0 (backend/invoke-native (:set-color native) ctx (float 0.0) (float 0.0) (float 0.0) (float 1.0))))
+          (is (= 0 (backend/invoke-native (:set-style native) ctx (int 0))))
+          (is (= 0 (backend/invoke-native (:draw-rect native) ctx (float 4) (float 3) (float 10) (float 5))))
+          (let [{:keys [bytes]} (copy-ctx-bytes native ctx (* 32 16))]
+            (is (dark? (byte-at bytes 32 5 4)))
+            (is (some dark? bytes)))
+          (finally
+            (is (= 0 (destroy-ctx native ctx)))))))))
+
+(deftest native-transform-clip-and-restore-test
+  (with-test-native [native]
+    (testing "save/clip/restore and translate/scale affect primitive drawing"
+      (let [ctx (create-ctx native 20 8)]
+        (try
+          (is (= 0 (backend/invoke-native (:clear native) ctx (unchecked-byte 255))))
+          (is (= 0 (backend/invoke-native (:set-color native) ctx (float 0.0) (float 0.0) (float 0.0) (float 1.0))))
+          (is (= 0 (backend/invoke-native (:save native) ctx)))
+          (is (= 0 (backend/invoke-native (:clip-rect native) ctx (float 0) (float 0) (float 6) (float 6))))
+          (is (= 0 (backend/invoke-native (:draw-rect native) ctx (float 0) (float 0) (float 12) (float 6))))
+          (is (= 0 (backend/invoke-native (:restore native) ctx)))
+          (is (= 0 (backend/invoke-native (:save native) ctx)))
+          (is (= 0 (backend/invoke-native (:translate native) ctx (float 8) (float 0))))
+          (is (= 0 (backend/invoke-native (:scale native) ctx (float 2) (float 1))))
+          (is (= 0 (backend/invoke-native (:draw-rect native) ctx (float 0) (float 0) (float 2) (float 4))))
+          (is (= 0 (backend/invoke-native (:restore native) ctx)))
+          (let [{:keys [bytes]} (copy-ctx-bytes native ctx (* 20 8))]
+            (is (= {:clipped-in  true
+                    :clipped-out false
+                    :translated  true}
+                   {:clipped-in  (dark? (byte-at bytes 20 2 2))
+                    :clipped-out (dark? (byte-at bytes 20 7 2))
+                    :translated  (dark? (byte-at bytes 20 9 2))})))
+          (finally
+            (is (= 0 (destroy-ctx native ctx)))))))))
+
+(deftest native-draw-round-rect-and-path-test
+  (with-test-native [native]
+    (testing "rounded rectangles and stroked paths draw visible gray8 pixels"
+      (let [ctx (create-ctx native 32 24)]
+        (try
+          (is (= 0 (backend/invoke-native (:clear native) ctx (unchecked-byte 255))))
+          (is (= 0 (backend/invoke-native (:set-color native) ctx (float 0.0) (float 0.0) (float 0.0) (float 1.0))))
+          (is (= 0 (backend/invoke-native (:set-style native) ctx (int 0))))
+          (is (= 0 (backend/invoke-native (:draw-round-rect native) ctx (float 2) (float 2) (float 12) (float 8) (float 3))))
+          (is (= 0 (backend/invoke-native (:set-style native) ctx (int 1))))
+          (is (= 0 (backend/invoke-native (:set-stroke-width native) ctx (float 2))))
+          (is (= 0 (draw-path native ctx [[18 3] [28 12] [18 21]] false)))
+          (let [{:keys [bytes]} (copy-ctx-bytes native ctx (* 32 24))]
+            (is (dark? (byte-at bytes 32 6 6)))
+            (is (some dark? (drop (+ 18 (* 3 32)) bytes))))
+          (finally
+            (is (= 0 (destroy-ctx native ctx)))))))))

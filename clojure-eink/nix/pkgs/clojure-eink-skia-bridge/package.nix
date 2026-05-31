@@ -1,5 +1,6 @@
 {
   stdenv,
+  skia,
   src,
   version ? "0.0.1",
 }:
@@ -10,14 +11,23 @@ stdenv.mkDerivation {
 
   strictDeps = true;
 
+  buildInputs = [
+    skia
+  ];
+
   buildPhase = ''
     runHook preBuild
 
     $CXX -std=c++20 -Wall -Wextra -Werror -O2 -fPIC \
       -I src/native \
+      -I ${skia}/include/skia \
+      -DSKIA_DLL \
+      -L ${skia}/lib \
       -Wl,-soname,libclojure_eink_skia.so \
+      -Wl,-rpath,'$ORIGIN' \
       -shared -o libclojure_eink_skia.so \
-      src/native/eink_skia_native.cpp
+      src/native/eink_skia_native.cpp \
+      -lskia
 
     runHook postBuild
   '';
@@ -27,6 +37,7 @@ stdenv.mkDerivation {
 
     mkdir -p "$out/lib" "$out/include"
     cp libclojure_eink_skia.so "$out/lib/"
+    cp -P ${skia}/lib/libsk*.so* "$out/lib/"
     cp src/native/eink_skia_native.h "$out/include/"
 
     runHook postInstall
