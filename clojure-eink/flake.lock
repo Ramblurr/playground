@@ -185,6 +185,18 @@
         "type": "github"
       }
     },
+    "fbink-src": {
+      "flake": false,
+      "locked": {
+        "narHash": "sha256-I6h5XVT/OPMBP/0vjOcTWbb8n8OkR/4Itj6//dKcAhc=",
+        "path": "/home/ramblurr/src/github.com/NiLuJe/FBInk",
+        "type": "path"
+      },
+      "original": {
+        "path": "/home/ramblurr/src/github.com/NiLuJe/FBInk",
+        "type": "path"
+      }
+    },
     "fenix": {
       "inputs": {
         "nixpkgs": [
@@ -690,6 +702,7 @@
         "clojure-nix-locker": "clojure-nix-locker",
         "devenv": "devenv",
         "devshell": "devshell_2",
+        "fbink-src": "fbink-src",
         "nixpkgs": "nixpkgs_6"
       }
     },

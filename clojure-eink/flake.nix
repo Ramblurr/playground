@@ -8,10 +8,13 @@
     devenv.inputs.nixpkgs.follows = "nixpkgs";
     clojure-nix-locker.url = "github:bevuta/clojure-nix-locker";
     clojure-nix-locker.inputs.nixpkgs.follows = "nixpkgs";
+    fbink-src.url = "path:/home/ramblurr/src/github.com/NiLuJe/FBInk";
+    fbink-src.flake = false;
   };
   outputs =
     inputs@{
       clojure-nix-locker,
+      fbink-src,
       self,
       devenv,
       devshell,
@@ -19,6 +22,53 @@
     }:
     let
       jdk = "jdk25";
+      mkNativeLib =
+        hostPkgs: targetPkgs: device:
+        targetPkgs.stdenv.mkDerivation {
+          pname = "clojure-eink-native";
+          version = "0.0.1";
+          src = ./.;
+          fbinkSource = fbink-src;
+
+          nativeBuildInputs = [
+            hostPkgs.autoconf
+            hostPkgs.automake
+            hostPkgs.coreutils
+            hostPkgs.file
+            hostPkgs.findutils
+            hostPkgs.gnum4
+            hostPkgs.gnumake
+            hostPkgs.libtool
+          ];
+
+          buildPhase = ''
+            runHook preBuild
+
+            cp -R --no-preserve=mode,ownership "$fbinkSource" fbink
+            chmod -R u+w fbink
+            rm -rf fbink/Release
+
+            make -C fbink sharedlib ${device}=1 FBINK_VERSION=clojure-eink-poc
+
+            $CC -std=c11 -Wall -Wextra -O2 -fPIC \
+              -I fbink -L fbink/Release \
+              -Wl,-rpath,'$ORIGIN' \
+              -shared -o libclojure_eink.so \
+              src/native/eink_native.c -lfbink
+
+            runHook postBuild
+          '';
+
+          installPhase = ''
+            runHook preInstall
+
+            mkdir -p "$out/lib"
+            cp libclojure_eink.so "$out/lib/"
+            cp -P fbink/Release/libfbink.so* "$out/lib/"
+
+            runHook postInstall
+          '';
+        };
     in
     devenv.lib.mkFlake ./. {
       inherit inputs;
@@ -68,7 +118,7 @@
               export JAVA_HOME="${jdkPackage.home}"
               export JAVA_CMD="${jdkPackage}/bin/java"
 
-              clojure -Srepro -M:dev:kaocha
+              clojure -Srepro -M:kaocha
               clojure -Srepro -T:build jar
 
               runHook postBuild
@@ -82,6 +132,8 @@
               runHook postInstall
             '';
           };
+        native = pkgs: mkNativeLib pkgs pkgs "LINUX";
+        native-kobo = pkgs: mkNativeLib pkgs pkgs.pkgsCross.armv7l-hf-multiplatform "KOBO";
         locker =
           pkgs:
           let
@@ -101,8 +153,8 @@
             export GITLIBS="$tmp/home/.gitlibs"
             unset CLJ_CACHE CLJ_CONFIG XDG_CACHE_HOME XDG_CONFIG_HOME XDG_DATA_HOME
 
-            ${clojure}/bin/clojure -Srepro -X:deps prep :aliases "[:dev :kaocha]"
-            ${clojure}/bin/clojure -Srepro -P -M:dev:kaocha
+            ${clojure}/bin/clojure -Srepro -X:deps prep :aliases "[:kaocha]"
+            ${clojure}/bin/clojure -Srepro -P -M:kaocha
             ${clojure}/bin/clojure -Srepro -P -T:build jar
           '';
       };
@@ -119,7 +171,9 @@
           ];
           packages = [
             (if self ? packages then self.packages.${pkgs.system}.locker else pkgs.deps-lock)
-            # pkgs.foobar
+            pkgs.jdk25
+            pkgs.gnumake
+            pkgs.file
           ];
 
         };

@@ -7,7 +7,7 @@
 
 (set! *warn-on-reflection* true)
 
-(defonce portal! (portal/open-portals))
+;;(defonce portal! (portal/open-portals))
 
 ;; Configure the paths containing clojure sources we want clj-reload to reload
 (clj-reload/init {:dirs      ["src" "dev" "test"]
