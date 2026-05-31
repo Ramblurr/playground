@@ -280,6 +280,290 @@
       (finally
         (.dispose ^Graphics2D g)))))
 
+(defn snapshot-gray8
+  "Return a compact, independent copy of a gray8 buffer."
+  [{:keys [width height stride data]}]
+  (let [snapshot (byte-array (* width height))]
+    (dotimes [row height]
+      (System/arraycopy ^bytes data
+                        (* row stride)
+                        snapshot
+                        (* row width)
+                        width))
+    {:width width :height height :stride width :data snapshot}))
+
+(defn diff-gray8
+  "Return the bounding changed rectangle between previous and current gray8 buffers.
+
+  Returns nil when buffers are equal. A nil or incompatible previous buffer returns
+  the full current rectangle."
+  [previous {:keys [width height stride data] :as current}]
+  (if (or (nil? previous)
+          (not= width (:width previous))
+          (not= height (:height previous)))
+    {:x 0 :y 0 :width width :height height}
+    (let [prev-data   ^bytes (:data previous)
+          prev-stride (long (:stride previous))
+          cur-data    ^bytes data
+          cur-stride  (long stride)
+          min-x       (volatile! width)
+          min-y       (volatile! height)
+          max-x       (volatile! -1)
+          max-y       (volatile! -1)]
+      (dotimes [y height]
+        (let [prev-row (* y prev-stride)
+              cur-row  (* y cur-stride)]
+          (dotimes [x width]
+            (when (not= (aget prev-data (+ prev-row x))
+                        (aget cur-data (+ cur-row x)))
+              (when (< x @min-x) (vreset! min-x x))
+              (when (< y @min-y) (vreset! min-y y))
+              (when (> x @max-x) (vreset! max-x x))
+              (when (> y @max-y) (vreset! max-y y))))))
+      (when (not= -1 @max-x)
+        {:x @min-x
+         :y @min-y
+         :width  (inc (- @max-x @min-x))
+         :height (inc (- @max-y @min-y))}))))
+
+(defn crop-gray8
+  "Copy rect from gray8 into a compact gray8 buffer."
+  [{:keys [stride data]} {:keys [x y width height]}]
+  (let [crop (byte-array (* width height))]
+    (dotimes [row height]
+      (System/arraycopy ^bytes data
+                        (+ x (* (+ y row) stride))
+                        crop
+                        (* row width)
+                        width))
+    {:width width :height height :stride width :data crop}))
+
+(defn open-context!
+  "Create a long-lived Membrane e-ink backend context.
+
+  When `:native?` is true, loads and initializes the native FBInk bridge.
+  Tests may pass `:native` directly to avoid native loading."
+  [{:keys [native native? native-lib width height image-cache font-cache previous-gray]
+    :as   opts}]
+  (let [native-lib' (or native-lib (project/default-native-lib))
+        loaded?     (and native? (nil? native))
+        native'     (or native
+                       (when native?
+                         (when-not native-lib'
+                           (throw (ex-info "native library path not provided and no default native library was found" {})))
+                         (project/load-native native-lib')))]
+    (when loaded?
+      (project/init-native! native'))
+    (let [width'  (or width
+                      (when native' (project/native-screen-width native'))
+                      800)
+          height' (or height
+                      (when native' (project/native-screen-height native'))
+                      600)]
+      {:native        native'
+       :native-lib    native-lib'
+       :loaded-native? loaded?
+       :width         width'
+       :height        height'
+       :image-cache   (or image-cache (atom nil))
+       :font-cache    (or font-cache (atom {}))
+       :previous-gray (or previous-gray (atom nil))
+       :render-count  (atom 0)
+       :partial-count (atom 0)})))
+
+(defn close-context!
+  [context]
+  (when (and (:native context) (:loaded-native? context))
+    (project/close-native! (:native context)))
+  nil)
+
+(defn render-frame!
+  "Render `elem` through Java2D and convert it to the final gray8 bytes."
+  [context elem opts]
+  (let [render-opts (merge opts
+                           {:width       (:width context)
+                            :height      (:height context)
+                            :image-cache (:image-cache context)
+                            :font-cache  (:font-cache context)})
+        [image render-ms] (project/timed #(render-to-image! elem render-opts))
+        [gray gray-ms]   (project/timed #(project/image->gray8 image))]
+    (swap! (:render-count context) inc)
+    {:image image
+     :gray gray
+     :timings {:render-to-image render-ms
+               :image->gray8    gray-ms}}))
+
+(defn- rect-area
+  [{:keys [width height]}]
+  (* (long width) (long height)))
+
+(defn- full-rect
+  [{:keys [width height]}]
+  {:x 0 :y 0 :width width :height height})
+
+(defn- full-present?
+  [gray dirty-rect {:keys [damage? force-full? damage-full-threshold]
+                    :or   {damage? true damage-full-threshold 0.35}}]
+  (or (not damage?)
+      force-full?
+      (= dirty-rect (full-rect gray))
+      (>= (/ (double (rect-area dirty-rect))
+             (double (rect-area gray)))
+          (double damage-full-threshold))))
+
+(defn present-gray8-with-damage!
+  "Present a gray8 buffer using one bounding dirty rectangle.
+
+  `context` must contain `:native` and `:previous-gray` atom. The previous
+  gray8 buffer is stored as an independent copied snapshot, never as the
+  current image backing array."
+  [context gray opts]
+  (let [previous      @(:previous-gray context)
+        damage?       (get opts :damage? true)
+        dirty-rect    (if damage?
+                        (diff-gray8 previous gray)
+                        (full-rect gray))]
+    (if-not dirty-rect
+      {:presented? false
+       :present-kind :skip
+       :dirty-rect nil}
+      (let [present-kind (if (full-present? gray dirty-rect opts) :full :partial)
+            gray-out     (if (= :full present-kind)
+                           gray
+                           (crop-gray8 gray dirty-rect))
+            present-opts (if (= :full present-kind)
+                           (assoc opts :x 0 :y 0)
+                           (assoc opts :x (:x dirty-rect) :y (:y dirty-rect)))]
+        (project/present-gray8! (:native context) gray-out present-opts)
+        (reset! (:previous-gray context) (snapshot-gray8 gray))
+        {:presented? true
+         :present-kind present-kind
+         :dirty-rect dirty-rect}))))
+
+(defn present-frame!
+  "Render and damage-present one Membrane frame.
+
+  If the context has no native handle, this only renders/converts and returns
+  `:present-kind :no-native`."
+  [context elem opts]
+  (let [{:keys [gray] :as frame} (render-frame! context elem opts)]
+    (if (:native context)
+      (let [[present-result present-ms] (project/timed #(present-gray8-with-damage! context gray opts))]
+        (when (= :partial (:present-kind present-result))
+          (swap! (:partial-count context) inc))
+        (-> frame
+            (merge present-result)
+            (assoc-in [:timings :native-present] present-ms)))
+      (merge frame
+             {:presented? false
+              :present-kind :no-native
+              :dirty-rect nil}))))
+
+(defn- view-container-info
+  [context opts]
+  {:container-size [(:width context) (:height context)]
+   :context context
+   :opts opts})
+
+(defn view-element
+  [context view-fn opts]
+  (if (:include-container-info opts)
+    (view-fn (view-container-info context opts))
+    (view-fn)))
+
+(defn render-view!
+  "Render a view function once, presenting only when `:present?` is true."
+  [context view-fn opts]
+  (let [[elem view-ms] (project/timed #(view-element context view-fn opts))
+        frame          (if (:present? opts)
+                         (present-frame! context elem opts)
+                         (render-frame! context elem opts))]
+    (assoc-in frame [:timings :view] view-ms)))
+
+(defn parse-command-line
+  [line]
+  (let [tokens (-> line str/trim (str/split #"\s+"))]
+    (if (or (empty? tokens)
+            (= [""] tokens))
+      {:command :blank :args []}
+      {:command (keyword (str/lower-case (first tokens)))
+       :args    (vec (rest tokens))})))
+
+(defn- print-help!
+  []
+  (println "Commands:")
+  (println "  render [options]   render/present without restarting the JVM")
+  (println "  reload             call :reload! if supplied and clear render/damage caches")
+  (println "  help               print this help")
+  (println "  quit               close native backend and exit")
+  (flush))
+
+(defn- prompt!
+  []
+  (print "membrane-eink> ")
+  (flush))
+
+(defn clear-caches!
+  [context]
+  (reset! (:image-cache context) nil)
+  (reset! (:font-cache context) {})
+  (reset! (:previous-gray context) nil)
+  (reset! (:partial-count context) 0)
+  nil)
+
+(defn run-loop!
+  "Run a long-lived stdin command loop for a Membrane view function."
+  [view-fn base-opts]
+  (let [context (open-context! base-opts)]
+    (println "ready: long-lived Membrane e-ink loop")
+    (print-help!)
+    (try
+      (loop []
+        (prompt!)
+        (if-let [line (read-line)]
+          (let [{:keys [command args]} (parse-command-line line)]
+            (case command
+              :blank (recur)
+              :help (do (print-help!) (recur))
+              :reload (do
+                        (when-let [reload! (:reload! base-opts)]
+                          (reload!))
+                        (clear-caches! context)
+                        (println "reloaded")
+                        (flush)
+                        (recur))
+              :render (do
+                        (let [opts   (-> (project/parse-args base-opts args)
+                                         (assoc :width (:width context)
+                                                :height (:height context)))
+                              result (render-view! context view-fn opts)]
+                          (println "rendered" (:width context) "x" (:height context)
+                                   "mode" (name (or (:present-kind result) :render-only))
+                                   "dirty" (or (:dirty-rect result) "none"))
+                          (flush))
+                        (recur))
+              :quit :quit
+              :exit :quit
+              (do
+                (println "unknown command:" (name command))
+                (print-help!)
+                (recur))))
+          :eof))
+      (finally
+        (close-context! context)))))
+
+(defn run
+  ([view-fn]
+   (run view-fn {}))
+  ([view-fn opts]
+   (run-loop! view-fn opts)))
+
+(defn run-sync
+  ([view-fn]
+   (run-sync view-fn {}))
+  ([view-fn opts]
+   (run-loop! view-fn opts)))
+
 (defn present!
   [native elem opts]
   (let [image (render-to-image! elem opts)
