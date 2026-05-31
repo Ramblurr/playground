@@ -55,8 +55,8 @@
         (is (= [] (missing-symbols lookup ["eink_skia_last_error"])))))
     (is true "skipped: EINK_SKIA_NATIVE_LIB is absent")))
 
-(deftest ^:kaocha/pending required-skia-abi-surface-pending-test
-  (testing "the full v0 Skia bridge ABI is explicit before native implementation"
+(deftest required-skia-abi-surface-test
+  (testing "the full v0 Skia bridge ABI is exported by the native library"
     (if-let [library-path (skia-native-lib)]
       (let [lookup (library-lookup library-path)]
         (is (= [] (missing-symbols lookup required-abi-symbols))))

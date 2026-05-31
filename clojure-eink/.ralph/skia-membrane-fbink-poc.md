@@ -108,11 +108,11 @@ Do not wait for supervisor approval between ordinary numbered sections unless bl
 
 ### 2. Native bridge package skeleton
 
-- [ ] Add `src/native/eink_skia_native.h` and `src/native/eink_skia_native.cpp` with `eink_skia_last_error` and stable C ABI scaffolding.
-- [ ] Add `nix/pkgs/clojure-eink-skia-bridge/package.nix` for host and Kobo builds.
-- [ ] Wire host and Kobo bridge packages in `flake.nix`.
-- [ ] Verify host bridge build with `nix build .#clojure-eink-skia-bridge -o result-skia-native`.
-- [ ] Verify Kobo bridge build with `nix build .#clojure-eink-skia-bridge-kobo -o result-kobo-skia-native`.
+- [x] Add `src/native/eink_skia_native.h` and `src/native/eink_skia_native.cpp` with `eink_skia_last_error` and stable C ABI scaffolding.
+- [x] Add `nix/pkgs/clojure-eink-skia-bridge/package.nix` for host and Kobo builds.
+- [x] Wire host and Kobo bridge packages in `flake.nix`.
+- [x] Verify host bridge build with `nix build .#clojure-eink-skia-bridge -o result-skia-native`.
+- [x] Verify Kobo bridge build with `nix build .#clojure-eink-skia-bridge-kobo -o result-kobo-skia-native`.
 
 ### 3. Clojure FFM loading
 
@@ -280,3 +280,31 @@ Test/evidence commands:
 - `bb fmt:check` was not used as a gate for this section because it reports pre-existing formatting differences across vendored/existing files; the new test file was not listed among formatting failures.
 
 Section 1 blockers: none. Next section: native Skia bridge skeleton and Nix packages.
+
+## Section 2 checkpoint notes
+
+Completed in Ralph iteration 2.
+
+Changed paths for this section:
+- `src/native/eink_skia_native.h` (new C ABI header for the v0 `eink_skia_*` surface).
+- `src/native/eink_skia_native.cpp` (new C++20 skeleton exporting all v0 symbols, with `eink_skia_last_error` and `-ENOSYS` stubs).
+- `nix/pkgs/clojure-eink-skia-bridge/package.nix` (new host/cross native bridge derivation producing `libclojure_eink_skia.so`).
+- `flake.nix` (new packages `clojure-eink-skia-bridge` and `clojure-eink-skia-bridge-kobo`).
+- `test/clj/ol/membrane/skia_eink_backend_test.clj` (full ABI surface check activated now that the skeleton exports all symbols).
+- `.ralph/skia-membrane-fbink-poc.md` (this evidence log).
+
+Implementation notes:
+- The skeleton intentionally keeps the Skia bridge separate from the existing Java2D/FBInk `libclojure_eink.so`; it exports only `eink_skia_*` symbols.
+- The section 2 derivation compiles only the C++ ABI skeleton and does not yet link Skia or FBInk. Skia/FBInk linkage will be added with the rendering and present implementations in later sections.
+- The Kobo artifact was verified as a 32-bit ARM shared object: `ELF 32-bit LSB shared object, ARM, EABI5`.
+
+Test/evidence commands:
+- RED before implementation: `EINK_SKIA_NATIVE_LIB=result-native/lib/libclojure_eink.so bb test --focus ol.membrane.skia-eink-backend-test/required-skia-abi-surface-test` => expected failure listing all missing `eink_skia_*` symbols from the old bridge.
+- `nix build .#clojure-eink-skia-bridge -o result-skia-native` => success.
+- `nm -D --defined-only result-skia-native/lib/libclojure_eink_skia.so | rg 'eink_skia_'` => all 22 required v0 ABI symbols exported.
+- `EINK_SKIA_NATIVE_LIB=result-skia-native/lib/libclojure_eink_skia.so bb test --focus ol.membrane.skia-eink-backend-test` => `2 tests, 3 assertions, 0 failures`.
+- `nix build .#clojure-eink-skia-bridge-kobo -o result-kobo-skia-native` => success.
+- `file result-kobo-skia-native/lib/libclojure_eink_skia.so` => `ELF 32-bit LSB shared object, ARM, EABI5 version 1 (SYSV), dynamically linked, not stripped`.
+- `EINK_SKIA_NATIVE_LIB=result-skia-native/lib/libclojure_eink_skia.so bb test` => `31 tests, 97 assertions, 0 failures`.
+
+Section 2 blockers: none. Next section: Clojure FFM loading for the Skia bridge.

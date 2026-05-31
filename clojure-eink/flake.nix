@@ -112,6 +112,17 @@
               src = ./.;
               fbink = self.packages.${pkgs.system}.fbink-kobo;
             };
+        clojure-eink-skia-bridge =
+          pkgs:
+          pkgs.callPackage ./nix/pkgs/clojure-eink-skia-bridge/package.nix {
+            src = ./.;
+          };
+        clojure-eink-skia-bridge-kobo =
+          pkgs:
+          pkgs.pkgsCross.armv7l-hf-multiplatform.callPackage ./nix/pkgs/clojure-eink-skia-bridge/package.nix
+            {
+              src = ./.;
+            };
         native = pkgs: self.packages.${pkgs.system}.clojure-eink-fbink-bridge;
         native-kobo = pkgs: self.packages.${pkgs.system}.clojure-eink-fbink-bridge-kobo;
         skia =
