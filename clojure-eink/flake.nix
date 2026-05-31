@@ -120,6 +120,27 @@
             stdenv = pkgs.pkgsCross.armv7l-hf-multiplatform.clangStdenv;
           };
         skia-native = pkgs: pkgs.callPackage ./nix/pkgs/skia/package.nix { stdenv = pkgs.clangStdenv; };
+        kobo-jdk25-ffm =
+          pkgs: pkgs.pkgsCross.armv7l-hf-multiplatform.callPackage ./nix/pkgs/kobo-jdk25-ffm/package.nix { };
+        kobo-jdk25-clojure-java2d-ext2 =
+          pkgs:
+          let
+            targetPkgs = pkgs.pkgsCross.armv7l-hf-multiplatform;
+            koboJdk25Ffm = targetPkgs.callPackage ./nix/pkgs/kobo-jdk25-ffm/package.nix { };
+          in
+          pkgs.callPackage ./nix/pkgs/kobo-jdk25-clojure-java2d-ext2/package.nix {
+            inherit koboJdk25Ffm;
+            qemu = pkgs.qemu-user;
+            targetBintools = targetPkgs.stdenv.cc.bintools.bintools;
+            targetRuntimeDeps = with targetPkgs; [
+              alsa-lib
+              freetype
+              lcms2
+              libffi
+              libjpeg_turbo
+              zlib
+            ];
+          };
         locker =
           pkgs:
           let

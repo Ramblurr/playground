@@ -13,6 +13,7 @@ extra/
 *.log
 prompts/PROMPTS.md
 result
+result-*
 .env
 prompts/
 screenshots/
