@@ -144,10 +144,10 @@ Do not wait for supervisor approval between ordinary numbered sections unless bl
 
 ### 7. Membrane backend and project-local paragraph
 
-- [ ] Implement the small Membrane primitive set required by the prompt.
-- [ ] Add a project-local paragraph drawable for width-constrained e-reader text proof.
-- [ ] Add tests rendering simple Membrane values through the Skia backend into non-empty gray8 output.
-- [ ] Ensure repeated render calls do not crash and preserve stable dimensions.
+- [x] Implement the small Membrane primitive set required by the prompt.
+- [x] Add a project-local paragraph drawable for width-constrained e-reader text proof.
+- [x] Add tests rendering simple Membrane values through the Skia backend into non-empty gray8 output.
+- [x] Ensure repeated render calls do not crash and preserve stable dimensions.
 
 ### 8. Demo and packaging
 
@@ -428,3 +428,32 @@ Test/evidence commands:
 - `file result-kobo-skia-native/lib/libclojure_eink_skia.so` => `ELF 32-bit LSB shared object, ARM, EABI5 version 1 (SYSV), dynamically linked, not stripped`.
 
 Section 6 blockers: none. Next section: Membrane backend and project-local paragraph.
+
+## Section 7 checkpoint notes
+
+Completed in this Ralph iteration.
+
+Changed paths for this section:
+- `src/clj/ol/membrane/skia_eink_backend.clj` (high-level Skia Membrane backend, draw protocol implementations, paragraph drawable, render/view helpers, gray8 copy wrapper).
+- `test/clj/ol/membrane/skia_eink_backend_test.clj` (RED/GREEN high-level backend tests for API presence, primitive rendering, paragraph rendering, and repeated stable renders).
+- `.ralph/skia-membrane-fbink-poc.md` (this evidence log).
+
+Implementation notes:
+- Added `open-context!`, `close-context!`, `render-frame!`, `present-frame!`, `render-view!`, `view-element`, `run-loop!`, `run`, and `run-sync` to the Skia backend namespace.
+- Added a Skia-specific `IDraw` protocol and registered Membrane default draw implementations without touching vendored `src/clj/membrane/*`.
+- Implemented the required Membrane drawing set: `Label`, `Translate`, `WithColor`, `WithStyle`, `WithStrokeWidth`, `Rectangle`, `RoundedRectangle`, `Path`, `Scale`, `ScissorView`, and `ScrollView`.
+- Added a project-local `Paragraph` record plus `paragraph`/`paragraph-bounds`; paragraph and label drawing both call the SkParagraph-backed native `eink_skia_draw_text_box`.
+- `text-metrics`/`text-bounds` call the native `eink_skia_text_bounds`; label `IBounds` uses Skia only when a Skia context is bound and falls back to the Java2D backend outside that context to avoid breaking existing Java2D Membrane tests.
+- `render-frame!` clears the native gray8 surface, draws into the native context, copies compact gray8 bytes back for host tests, and increments `:render-count`.
+- `present-frame!` is wired to the native `eink_skia_present` ABI but remains effectively future-facing until Section 9 implements the native FBInk present body.
+- During GREEN verification, a `ClassCastException: Cannot cast java.lang.Long to java.lang.Integer` traced to default font weight/slant arguments passed to int FFM parameters; fixed by explicitly returning `int` values from the font weight/slant helpers.
+
+Test/evidence commands:
+- RED before implementation: `EINK_SKIA_NATIVE_LIB=result-skia-native/lib/libclojure_eink_skia.so EINK_FONT_DIR=resources/fonts bb test --focus ol.membrane.skia-eink-backend-test/skia-backend-high-level-api-test --focus ol.membrane.skia-eink-backend-test/skia-render-frame-draws-membrane-primitives-test --focus ol.membrane.skia-eink-backend-test/skia-paragraph-drawable-renders-visible-wrapped-text-test --focus ol.membrane.skia-eink-backend-test/skia-render-frame-repeated-stable-dimensions-test` => expected RED: `4 tests, 4 assertions, 4 failures` listing missing high-level vars.
+- `cljfmt fix src/clj/ol/membrane/skia_eink_backend.clj test/clj/ol/membrane/skia_eink_backend_test.clj`, then `cljfmt check src/clj/ol/membrane/skia_eink_backend.clj test/clj/ol/membrane/skia_eink_backend_test.clj` => `All source files formatted correctly`.
+- `EINK_SKIA_NATIVE_LIB=result-skia-native/lib/libclojure_eink_skia.so EINK_FONT_DIR=resources/fonts bb test --focus ol.membrane.skia-eink-backend-test` => `17 tests, 73 assertions, 0 failures`.
+- `EINK_SKIA_NATIVE_LIB=result-skia-native/lib/libclojure_eink_skia.so EINK_FONT_DIR=resources/fonts bb test` => `46 tests, 167 assertions, 0 failures`.
+- `unset EINK_SKIA_NATIVE_LIB EINK_FONT_DIR; bb test` => `46 tests, 112 assertions, 0 failures` (native-dependent Skia tests skip when env is absent).
+- `EINK_SKIA_NATIVE_LIB=result-skia-native/lib/libclojure_eink_skia.so EINK_FONT_DIR=resources/fonts clojure -M:kaocha` => `46 tests, 167 assertions, 0 failures`.
+
+Section 7 blockers: none. Next section: demo namespace and Kobo packaging script support.

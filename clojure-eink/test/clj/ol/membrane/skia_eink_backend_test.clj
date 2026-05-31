@@ -2,6 +2,7 @@
   (:require
    [clojure.java.io :as io]
    [clojure.test :refer [deftest is testing]]
+   [membrane.ui :as ui]
    [ol.membrane.skia-eink-backend :as backend])
   (:import
    [java.lang.foreign Arena MemorySegment ValueLayout]
@@ -410,3 +411,143 @@
           (finally
             (when (not= MemorySegment/NULL ctx)
               (is (= 0 (destroy-ctx native ctx))))))))))
+
+(def required-high-level-vars
+  '[open-context!
+    close-context!
+    render-frame!
+    render-view!
+    paragraph
+    paragraph-bounds])
+
+(defn- backend-var
+  [sym]
+  (ns-resolve 'ol.membrane.skia-eink-backend sym))
+
+(defn- missing-high-level-vars
+  []
+  (vec (remove backend-var required-high-level-vars)))
+
+(defn- backend-call
+  [sym & args]
+  (apply (deref (backend-var sym)) args))
+
+(defn- dark-byte?
+  [b]
+  (< (bit-and 0xFF b) 250))
+
+(defn- primitive-demo-elem
+  []
+  [(ui/with-color [1 1 1]
+     (ui/rectangle 220 140))
+   (ui/with-color [0 0 0]
+     (ui/translate 8 24
+                   (ui/label "Skia Label" (ui/font "Noto Sans" 18)))
+     (ui/translate 12 44
+                   (ui/rectangle 28 18))
+     (ui/translate 52 42
+                   (ui/rounded-rectangle 32 22 5))
+     (ui/translate 98 42
+                   (ui/with-style :membrane.ui/style-stroke
+                     (ui/with-stroke-width 2
+                       (ui/path [0 0] [24 16] [48 0]))))
+     (ui/scale 1.5 1.0
+               (ui/translate 16 86
+                             (ui/rectangle 12 12))))
+   (ui/scissor-view [150 28]
+                    [24 18]
+                    (ui/with-color [0 0 0]
+                      (ui/translate 150 28
+                                    (ui/rectangle 48 40))))
+   (ui/scrollview [30 16]
+                  [0 0]
+                  (ui/with-color [0 0 0]
+                    (ui/rectangle 30 16)))])
+
+(deftest skia-backend-high-level-api-test
+  (testing "Skia backend exposes the high-level rendering API for Membrane values"
+    (is (= [] (missing-high-level-vars)))))
+
+(deftest skia-render-frame-draws-membrane-primitives-test
+  (with-test-native-and-fonts [_native font-dir]
+    (if-let [missing (seq (missing-high-level-vars))]
+      (is (= [] (vec missing)))
+      (let [context (backend-call 'open-context!
+                                  {:native-lib     (skia-native-lib)
+                                   :font-dir       font-dir
+                                   :default-family "Noto Sans"
+                                   :width          220
+                                   :height         140})]
+        (try
+          (let [{:keys [gray]} (backend-call 'render-frame! context (primitive-demo-elem) {})]
+            (is (= {:width  220
+                    :height 140
+                    :stride 220}
+                   (select-keys gray [:width :height :stride])))
+            (is (some dark-byte? (:data gray)))
+            (is (= 1 @(:render-count context))))
+          (finally
+            (backend-call 'close-context! context)))))))
+
+(deftest skia-paragraph-drawable-renders-visible-wrapped-text-test
+  (with-test-native-and-fonts [_native font-dir]
+    (if-let [missing (seq (missing-high-level-vars))]
+      (is (= [] (vec missing)))
+      (let [context (backend-call 'open-context!
+                                  {:native-lib     (skia-native-lib)
+                                   :font-dir       font-dir
+                                   :default-family "Noto Serif"
+                                   :width          180
+                                   :height         120})]
+        (try
+          (let [paragraph       (backend-call 'paragraph
+                                              "SkParagraph wraps project-local e-reader text — Café 123"
+                                              (ui/font "Noto Serif" 18)
+                                              120)
+                [para-w para-h] (backend-call 'paragraph-bounds context paragraph)
+                {:keys [gray]}  (backend-call 'render-frame!
+                                              context
+                                              [(ui/with-color [1 1 1]
+                                                 (ui/rectangle 180 120))
+                                               (ui/with-color [0 0 0]
+                                                 (ui/translate 6 6 paragraph))]
+                                              {})]
+            (is (= {:positive?     true
+                    :within-width? true}
+                   {:positive?     (and (pos? para-w) (pos? para-h))
+                    :within-width? (<= para-w 125.0)}))
+            (is (= {:width  180
+                    :height 120
+                    :stride 180}
+                   (select-keys gray [:width :height :stride])))
+            (is (some dark-byte? (:data gray))))
+          (finally
+            (backend-call 'close-context! context)))))))
+
+(deftest skia-render-frame-repeated-stable-dimensions-test
+  (with-test-native-and-fonts [_native font-dir]
+    (if-let [missing (seq (missing-high-level-vars))]
+      (is (= [] (vec missing)))
+      (let [context (backend-call 'open-context!
+                                  {:native-lib     (skia-native-lib)
+                                   :font-dir       font-dir
+                                   :default-family "Noto Sans"
+                                   :width          96
+                                   :height         64})]
+        (try
+          (let [elem           [(ui/with-color [1 1 1]
+                                  (ui/rectangle 96 64))
+                                (ui/with-color [0 0 0]
+                                  (ui/translate 4 24
+                                                (ui/label "Stable" (ui/font "Noto Sans" 18))))]
+                first-result   (backend-call 'render-frame! context elem {})
+                second-result  (backend-call 'render-frame! context elem {})
+                gray-summaries (mapv #(select-keys (:gray %) [:width :height :stride])
+                                     [first-result second-result])]
+            (is (= [{:width 96 :height 64 :stride 96}
+                    {:width 96 :height 64 :stride 96}]
+                   gray-summaries))
+            (is (= 2 @(:render-count context)))
+            (is (some dark-byte? (:data (:gray second-result)))))
+          (finally
+            (backend-call 'close-context! context)))))))

@@ -1,7 +1,9 @@
 (ns ol.membrane.skia-eink-backend
   (:require
    [clojure.java.io :as io]
-   [clojure.string :as str])
+   [clojure.string :as str]
+   [membrane.ui :as ui]
+   [ol.membrane.eink-backend :as java2d-backend])
   (:import
    [java.lang.foreign Arena FunctionDescriptor Linker Linker$Option MemoryLayout MemorySegment SymbolLookup ValueLayout]
    [java.lang.invoke MethodHandle]
@@ -141,3 +143,534 @@
             (if (zero? b)
               (String. (byte-array (map unchecked-byte bytes)) StandardCharsets/UTF_8)
               (recur (inc i) (conj bytes b)))))))))
+
+(def default-font-dir-env "EINK_FONT_DIR")
+
+(def default-width 800)
+(def default-height 600)
+(def label-max-width 1000000.0)
+
+(def ^:dynamic *context* nil)
+(def ^:dynamic *color* [0 0 0 1])
+(def ^:dynamic *style* :membrane.ui/style-fill)
+(def ^:dynamic *stroke-width* 1.0)
+
+(def style->native
+  {:membrane.ui/style-fill            0
+   :membrane.ui/style-stroke          1
+   :membrane.ui/style-stroke-and-fill 2})
+
+(def waveforms
+  {:auto 0
+   :du   1
+   :gc16 2
+   :gl16 3
+   :a2   4})
+
+(defprotocol IDraw
+  :extend-via-metadata true
+  (draw [this]))
+
+(ui/add-default-draw-impls! IDraw #'draw)
+
+(declare paragraph-bounds)
+
+(defrecord Paragraph [text font width]
+  ui/IOrigin
+  (-origin [_]
+    [0 0])
+
+  ui/IBounds
+  (-bounds [this]
+    (if *context*
+      (paragraph-bounds *context* this)
+      [width (double (* 1.35 (or (:size font) (:size ui/default-font))))])))
+
+(defn paragraph
+  [text font width]
+  (Paragraph. (str text) font (double width)))
+
+(defn default-font-dir
+  ([]
+   (default-font-dir (System/getenv)))
+  ([env]
+   (not-empty (get env default-font-dir-env))))
+
+(defn- size-t
+  [n]
+  (if (= "32" (System/getProperty "sun.arch.data.model"))
+    (int n)
+    (long n)))
+
+(defn- timed
+  [f]
+  (let [start  (System/nanoTime)
+        result (f)
+        end    (System/nanoTime)]
+    [result (/ (double (- end start)) 1000000.0)]))
+
+(defn- c-string
+  [^Arena arena value]
+  (if (some? value)
+    (let [bytes   (.getBytes (str value) StandardCharsets/UTF_8)
+          segment (.allocate arena (long (inc (alength bytes))) 1)]
+      (doseq [idx (range (alength bytes))]
+        (.set segment ValueLayout/JAVA_BYTE (long idx) (aget bytes idx)))
+      (.set segment ValueLayout/JAVA_BYTE (long (alength bytes)) (byte 0))
+      segment)
+    MemorySegment/NULL))
+
+(defn- check-native!
+  [context rv action]
+  (let [code (int rv)]
+    (when (neg? code)
+      (let [native (:native context)]
+        (throw (ex-info (str action " failed: " (or (native-last-error native) code))
+                        {:action action
+                         :code   code}))))
+    code))
+
+(defn- native-call!
+  [context key & args]
+  (check-native! context
+                 (apply invoke-native (get-in context [:native key]) (:skia-context context) args)
+                 (name key)))
+
+(defn- require-context
+  []
+  (or *context*
+      (throw (ex-info "Skia Membrane draw called without a bound context" {}))))
+
+(defn- require-font-dir
+  [font-dir]
+  (when (or (nil? font-dir)
+            (str/blank? (str font-dir)))
+    (throw (ex-info "Skia font directory path not provided"
+                    {:env default-font-dir-env})))
+  font-dir)
+
+(defn- font-family
+  [font]
+  (not-empty (:name font)))
+
+(defn- font-size
+  [font]
+  (float (or (:size font) (:size ui/default-font))))
+
+(defn- font-weight
+  [font]
+  (let [weight (:weight font)]
+    (int (cond
+           (number? weight) weight
+           (= :bold weight) 700
+           :else 0))))
+
+(defn- font-slant
+  [font]
+  (int (case (:slant font)
+         :italic 1
+         :oblique 2
+         0)))
+
+(defn- normalized-color
+  [[r g b a]]
+  [(float (or r 0.0))
+   (float (or g 0.0))
+   (float (or b 0.0))
+   (float (or a 1.0))])
+
+(defn- set-color!
+  [context color]
+  (let [[r g b a] (normalized-color color)]
+    (native-call! context :set-color r g b a)))
+
+(defn- set-style!
+  [context style]
+  (native-call! context :set-style (int (get style->native style 0))))
+
+(defn- set-stroke-width!
+  [context width]
+  (native-call! context :set-stroke-width (float width)))
+
+(defn- with-saved-canvas*
+  [context f]
+  (native-call! context :save)
+  (try
+    (f)
+    (finally
+      (native-call! context :restore))))
+
+(defn text-metrics
+  [context font text max-width]
+  (with-open [arena (Arena/ofConfined)]
+    (let [text'       (str text)
+          text-bytes  (.getBytes text' StandardCharsets/UTF_8)
+          width-seg   (.allocate arena (long 4) 4)
+          height-seg  (.allocate arena (long 4) 4)
+          ascent-seg  (.allocate arena (long 4) 4)
+          descent-seg (.allocate arena (long 4) 4)
+          leading-seg (.allocate arena (long 4) 4)]
+      (check-native! context
+                     (invoke-native (:text-bounds (:native context))
+                                    (:skia-context context)
+                                    (c-string arena text')
+                                    (int (alength text-bytes))
+                                    (c-string arena (font-family font))
+                                    (font-size font)
+                                    (font-weight font)
+                                    (font-slant font)
+                                    (float max-width)
+                                    width-seg
+                                    height-seg
+                                    ascent-seg
+                                    descent-seg
+                                    leading-seg)
+                     "text-bounds")
+      {:width   (.get width-seg ValueLayout/JAVA_FLOAT 0)
+       :height  (.get height-seg ValueLayout/JAVA_FLOAT 0)
+       :ascent  (.get ascent-seg ValueLayout/JAVA_FLOAT 0)
+       :descent (.get descent-seg ValueLayout/JAVA_FLOAT 0)
+       :leading (.get leading-seg ValueLayout/JAVA_FLOAT 0)})))
+
+(defn text-bounds
+  ([context font text]
+   (text-bounds context font text label-max-width))
+  ([context font text max-width]
+   (let [{:keys [width height]} (text-metrics context font text max-width)]
+     [(double width) (double height)])))
+
+(defn paragraph-bounds
+  [context {:keys [text font width]}]
+  (text-bounds context font text width))
+
+(defn- draw-text-box!
+  [context text font x y max-width]
+  (with-open [arena (Arena/ofConfined)]
+    (let [text'      (str text)
+          text-bytes (.getBytes text' StandardCharsets/UTF_8)]
+      (check-native! context
+                     (invoke-native (:draw-text-box (:native context))
+                                    (:skia-context context)
+                                    (c-string arena text')
+                                    (int (alength text-bytes))
+                                    (c-string arena (font-family font))
+                                    (font-size font)
+                                    (font-weight font)
+                                    (font-slant font)
+                                    (float x)
+                                    (float y)
+                                    (float max-width))
+                     "draw-text-box"))))
+
+(defn copy-gray8
+  [context]
+  (let [width  (:width context)
+        height (:height context)
+        stride (:stride context)
+        len    (* stride height)]
+    (with-open [arena (Arena/ofConfined)]
+      (let [segment (.allocate arena (long len) 1)
+            data    (byte-array len)]
+        (native-call! context :copy-gray8 segment (size-t len))
+        (MemorySegment/copy segment ValueLayout/JAVA_BYTE 0 data 0 len)
+        {:width  width
+         :height height
+         :stride stride
+         :data   data}))))
+
+(defn open-context!
+  [{:keys [native native-lib font-dir default-family width height render-count]
+    :as   _opts}]
+  (let [native'     (or native (load-native (or native-lib (default-native-lib))))
+        width'      (int (or width default-width))
+        height'     (int (or height default-height))
+        font-dir'   (require-font-dir (or font-dir (default-font-dir)))
+        native-lib' (or native-lib (:native-lib native'))]
+    (with-open [arena (Arena/ofConfined)]
+      (let [skia-context (invoke-native (:create native')
+                                        width'
+                                        height'
+                                        (c-string arena font-dir')
+                                        (c-string arena default-family))]
+        (when (= MemorySegment/NULL skia-context)
+          (throw (ex-info (str "Skia context creation failed: " (native-last-error native'))
+                          {:native-lib native-lib'
+                           :font-dir   font-dir'
+                           :width      width'
+                           :height     height'})))
+        {:native         native'
+         :skia-context   skia-context
+         :native-lib     native-lib'
+         :font-dir       font-dir'
+         :default-family default-family
+         :width          width'
+         :height         height'
+         :stride         (invoke-native (:stride native') skia-context)
+         :render-count   (or render-count (atom 0))}))))
+
+(defn close-context!
+  [context]
+  (when (and (:native context)
+             (:skia-context context)
+             (not= MemorySegment/NULL (:skia-context context)))
+    (check-native! context
+                   (invoke-native (:destroy (:native context)) (:skia-context context))
+                   "destroy"))
+  nil)
+
+(extend-type membrane.ui.Label
+  ui/IBounds
+  (-bounds [this]
+    (if *context*
+      (text-bounds *context* (:font this) (:text this))
+      (java2d-backend/text-bounds (:font this) (:text this))))
+
+  IDraw
+  (draw [this]
+    (let [context (require-context)]
+      (draw-text-box! context (:text this) (:font this) 0.0 0.0 label-max-width))))
+
+(extend-type Paragraph
+  IDraw
+  (draw [this]
+    (let [context (require-context)]
+      (draw-text-box! context (:text this) (:font this) 0.0 0.0 (:width this)))))
+
+(extend-type membrane.ui.Translate
+  IDraw
+  (draw [this]
+    (let [context (require-context)]
+      (with-saved-canvas*
+        context
+        (fn []
+          (native-call! context :translate (float (:x this)) (float (:y this)))
+          (draw (:drawable this)))))))
+
+(extend-type membrane.ui.WithColor
+  IDraw
+  (draw [this]
+    (let [context  (require-context)
+          previous *color*
+          color    (:color this)]
+      (set-color! context color)
+      (try
+        (binding [*color* color]
+          (doseq [drawable (:drawables this)]
+            (draw drawable)))
+        (finally
+          (set-color! context previous))))))
+
+(extend-type membrane.ui.WithStyle
+  IDraw
+  (draw [this]
+    (let [context  (require-context)
+          previous *style*
+          style    (:style this)]
+      (set-style! context style)
+      (try
+        (binding [*style* style]
+          (doseq [drawable (:drawables this)]
+            (draw drawable)))
+        (finally
+          (set-style! context previous))))))
+
+(extend-type membrane.ui.WithStrokeWidth
+  IDraw
+  (draw [this]
+    (let [context  (require-context)
+          previous *stroke-width*
+          width    (:stroke-width this)]
+      (set-stroke-width! context width)
+      (try
+        (binding [*stroke-width* width]
+          (doseq [drawable (:drawables this)]
+            (draw drawable)))
+        (finally
+          (set-stroke-width! context previous))))))
+
+(extend-type membrane.ui.Path
+  IDraw
+  (draw [this]
+    (when-let [points (seq (:points this))]
+      (let [context (require-context)
+            values  (mapcat identity points)]
+        (with-open [arena (Arena/ofConfined)]
+          (let [segment (.allocate arena (long (* 4 (count values))) 4)]
+            (doseq [[idx value] (map-indexed vector values)]
+              (.set segment ValueLayout/JAVA_FLOAT (long (* idx 4)) (float value)))
+            (native-call! context :draw-path segment (int (count points)) (int 0))))))))
+
+(extend-type membrane.ui.Rectangle
+  IDraw
+  (draw [this]
+    (let [context (require-context)]
+      (native-call! context
+                    :draw-rect
+                    (float 0.0)
+                    (float 0.0)
+                    (float (:width this))
+                    (float (:height this))))))
+
+(extend-type membrane.ui.RoundedRectangle
+  IDraw
+  (draw [this]
+    (let [context (require-context)]
+      (native-call! context
+                    :draw-round-rect
+                    (float 0.0)
+                    (float 0.0)
+                    (float (:width this))
+                    (float (:height this))
+                    (float (:border-radius this))))))
+
+(extend-type membrane.ui.Scale
+  IDraw
+  (draw [this]
+    (let [context (require-context)
+          [sx sy] (:scalars this)]
+      (with-saved-canvas*
+        context
+        (fn []
+          (native-call! context :scale (float sx) (float sy))
+          (doseq [drawable (:drawables this)]
+            (draw drawable)))))))
+
+(extend-type membrane.ui.ScissorView
+  IDraw
+  (draw [this]
+    (let [context (require-context)
+          [ox oy] (:offset this)
+          [w h]   (:bounds this)]
+      (with-saved-canvas*
+        context
+        (fn []
+          (native-call! context :clip-rect (float ox) (float oy) (float w) (float h))
+          (draw (:drawable this)))))))
+
+(extend-type membrane.ui.ScrollView
+  IDraw
+  (draw [this]
+    (draw (ui/scissor-view [0 0]
+                           (:bounds this)
+                           (let [[x y] (:offset this)]
+                             (ui/translate x y (:drawable this)))))))
+
+(defn render-frame!
+  [context elem opts]
+  (let [clear-gray        (int (or (:clear-gray opts) 255))
+        [_clear clear-ms] (timed #(native-call! context :clear (unchecked-byte clear-gray)))
+        [_draw draw-ms]   (timed #(binding [*context*      context
+                                            *color*        [0 0 0 1]
+                                            *style*        :membrane.ui/style-fill
+                                            *stroke-width* 1.0]
+                                    (set-color! context *color*)
+                                    (set-style! context *style*)
+                                    (set-stroke-width! context *stroke-width*)
+                                    (draw elem)))
+        [gray copy-ms]    (timed #(copy-gray8 context))]
+    (swap! (:render-count context) inc)
+    {:gray    gray
+     :timings {:clear      clear-ms
+               :draw       draw-ms
+               :copy-gray8 copy-ms}}))
+
+(defn present-frame!
+  [context elem opts]
+  (let [{:keys [gray] :as frame} (render-frame! context elem opts)
+        x                        (int (or (:x opts) 0))
+        y                        (int (or (:y opts) 0))
+        width                    (int (or (:width opts) (:width gray)))
+        height                   (int (or (:height opts) (:height gray)))
+        waveform                 (int (get waveforms (:waveform opts :gc16) (:gc16 waveforms)))
+        flash                    (int (if (get opts :flash? true) 1 0))
+        wait                     (int (if (get opts :wait? true) 1 0))
+        [_ ms]                   (timed #(native-call! context :present x y width height waveform flash wait))]
+    (assoc frame
+           :presented? true
+           :present-kind :full
+           :dirty-rect {:x x :y y :width width :height height}
+           :timings (assoc (:timings frame) :native-present ms))))
+
+(defn- view-container-info
+  [context opts]
+  {:container-size [(:width context) (:height context)]
+   :context        context
+   :opts           opts})
+
+(defn view-element
+  [context view-fn opts]
+  (binding [*context* context]
+    (if (:include-container-info opts)
+      (view-fn (view-container-info context opts))
+      (view-fn))))
+
+(defn render-view!
+  [context view-fn opts]
+  (let [[elem view-ms] (timed #(view-element context view-fn opts))
+        frame          (if (:present? opts)
+                         (present-frame! context elem opts)
+                         (render-frame! context elem opts))]
+    (assoc-in frame [:timings :view] view-ms)))
+
+(defn parse-command-line
+  [line]
+  (let [tokens (-> line str/trim (str/split #"\s+"))]
+    (if (or (empty? tokens)
+            (= [""] tokens))
+      {:command :blank :args []}
+      {:command (keyword (str/lower-case (first tokens)))
+       :args    (vec (rest tokens))})))
+
+(defn- print-help!
+  []
+  (println "Commands:")
+  (println "  render            render/present without restarting the JVM")
+  (println "  help              print this help")
+  (println "  quit              close native backend and exit")
+  (flush))
+
+(defn- prompt!
+  []
+  (print "membrane-skia-eink> ")
+  (flush))
+
+(defn run-loop!
+  [view-fn base-opts]
+  (let [context (open-context! base-opts)]
+    (println "ready: long-lived Membrane Skia e-ink loop")
+    (print-help!)
+    (try
+      (loop []
+        (prompt!)
+        (if-let [line (read-line)]
+          (let [{:keys [command]} (parse-command-line line)]
+            (case command
+              :blank (recur)
+              :help (do (print-help!) (recur))
+              :render (do
+                        (let [result (render-view! context view-fn (assoc base-opts :include-container-info true))]
+                          (println "rendered" (:width context) "x" (:height context)
+                                   "mode" (name (or (:present-kind result) :render-only)))
+                          (flush))
+                        (recur))
+              :quit :quit
+              :exit :quit
+              (do
+                (println "unknown command:" (name command))
+                (print-help!)
+                (recur))))
+          :eof))
+      (finally
+        (close-context! context)))))
+
+(defn run
+  ([view-fn]
+   (run view-fn {}))
+  ([view-fn opts]
+   (run-loop! view-fn opts)))
+
+(defn run-sync
+  ([view-fn]
+   (run-sync view-fn {}))
+  ([view-fn opts]
+   (run-loop! view-fn opts)))
