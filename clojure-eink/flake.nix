@@ -134,6 +134,12 @@
           };
         native = pkgs: mkNativeLib pkgs pkgs "LINUX";
         native-kobo = pkgs: mkNativeLib pkgs pkgs.pkgsCross.armv7l-hf-multiplatform "KOBO";
+        skia =
+          pkgs:
+          pkgs.pkgsCross.armv7l-hf-multiplatform.callPackage ./nix/pkgs/skia/package.nix {
+            stdenv = pkgs.pkgsCross.armv7l-hf-multiplatform.clangStdenv;
+          };
+        skia-native = pkgs: pkgs.callPackage ./nix/pkgs/skia/package.nix { stdenv = pkgs.clangStdenv; };
         locker =
           pkgs:
           let
