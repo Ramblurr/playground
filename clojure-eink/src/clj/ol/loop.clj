@@ -76,7 +76,8 @@
        :native-lib   native-lib
        :width        width
        :height       height
-       :layout-cache (atom {})})))
+       :layout-cache (atom {})
+       :image-cache  (atom nil)})))
 
 (defn- render-command!
   [base-opts context args]
@@ -87,7 +88,8 @@
                            :native-lib (:native-lib context)
                            :width (:width context)
                            :height (:height context)
-                           :layout-cache (:layout-cache context))]
+                           :layout-cache (:layout-cache context)
+                           :image-cache (:image-cache context))]
     (benchmark! opts)))
 
 (defn run-loop!
@@ -103,7 +105,10 @@
             (case command
               :blank (recur)
               :help (do (print-help!) (recur))
-              :reload (do (reload-project!) (reset! (:layout-cache context) {}) (recur))
+              :reload (do (reload-project!)
+                           (reset! (:layout-cache context) {})
+                           (reset! (:image-cache context) nil)
+                           (recur))
               :render (do (render-command! base-opts context args) (recur))
               :quit :quit
               :exit :quit

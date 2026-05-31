@@ -65,6 +65,11 @@
                           #"unknown render mode"
                           (project/parse-args ["--render-mode" "bogus"])))))
 
+(deftest parse-reuse-image-option-test
+  (testing "image reuse benchmark flag"
+    (is (true? (:reuse-image? (project/parse-args ["--reuse-image"]))))
+    (is (false? (:reuse-image? (project/parse-args ["--reuse-image" "--no-reuse-image"]))))))
+
 (deftest render-demo-frame-timings-test
   (testing "render-demo-frame returns an image and per-phase timings"
     (let [render-frame (some-> (ns-resolve 'ol.project 'render-demo-frame) deref)]
@@ -79,6 +84,12 @@
             (is (contains? timings phase))
             (is (number? (get timings phase)))))))))
 
+(deftest render-demo-frame-reuses-supplied-image-test
+  (testing "rendering can draw into an existing BufferedImage"
+    (let [image  (project/render-demo-image {:width 320 :height 240})
+          result (project/render-demo-frame {:width 320 :height 240 :image image})]
+      (is (identical? image (:image result))))))
+
 (deftest benchmark-renders-reuses-supplied-layout-cache-test
   (testing "long-lived loops can keep cached TextLayouts across render commands"
     (let [cache (atom {})]
@@ -88,3 +99,14 @@
                                    :render-mode  :cached-layout
                                    :layout-cache cache})
       (is (= 1 (count @cache))))))
+
+(deftest benchmark-renders-reuses-supplied-image-cache-test
+  (testing "long-lived loops can reuse a BufferedImage across render commands"
+    (let [cache (atom nil)]
+      (project/benchmark-renders! {:width        320
+                                   :height       240
+                                   :renders      2
+                                   :render-mode  :rects
+                                   :reuse-image? true
+                                   :image-cache  cache})
+      (is (some? @cache)))))

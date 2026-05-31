@@ -144,8 +144,32 @@
                  content-width
                  (max 4 (quot row-height 2))))))
 
+(defn- compatible-image?
+  [^BufferedImage image width height]
+  (and image
+       (= BufferedImage/TYPE_BYTE_GRAY (.getType image))
+       (= width (.getWidth image))
+       (= height (.getHeight image))))
+
+(defn- acquire-render-image
+  [width height existing-image image-cache]
+  (cond
+    (compatible-image? existing-image width height)
+    existing-image
+
+    image-cache
+    (if (compatible-image? @image-cache width height)
+      @image-cache
+      (let [image (BufferedImage. width height BufferedImage/TYPE_BYTE_GRAY)]
+        (reset! image-cache image)
+        image))
+
+    :else
+    (BufferedImage. width height BufferedImage/TYPE_BYTE_GRAY)))
+
 (defn render-demo-frame
-  [{:keys [width height text margin font-size render-mode layout-cache]
+  [{:keys [width height text margin font-size render-mode layout-cache image-cache]
+    :as   opts
     :or   {width       800
            height      600
            text        default-text
@@ -153,7 +177,7 @@
            render-mode :layout}}]
   (when-not (contains? render-modes render-mode)
     (throw (ex-info (str "unknown render mode: " render-mode) {:render-mode render-mode})))
-  (let [[image image-allocation-ms] (timed #(BufferedImage. width height BufferedImage/TYPE_BYTE_GRAY))
+  (let [[image image-allocation-ms] (timed #(acquire-render-image width height (:image opts) image-cache))
         ^Graphics2D g              (.createGraphics ^BufferedImage image)]
     (try
       (let [[fonts font-setup-ms]
@@ -397,6 +421,7 @@
    :height       nil
    :renders      1
    :render-mode  :layout
+   :reuse-image? false
    :waveform     :gc16
    :flash?       true
    :wait?        true})
@@ -419,6 +444,8 @@
            "--repeat" (recur (assoc opts :renders (parse-positive-long-option arg (first more))) (next more))
            "--render-mode" (recur (assoc opts :render-mode (parse-render-mode-option arg (first more))) (next more))
            "--mode" (recur (assoc opts :render-mode (parse-render-mode-option arg (first more))) (next more))
+           "--reuse-image" (recur (assoc opts :reuse-image? true) more)
+           "--no-reuse-image" (recur (assoc opts :reuse-image? false) more)
            "--png" (recur (assoc opts :png (option-value arg (first more))) (next more))
            "--native-lib" (recur (assoc opts :native-lib (option-value arg (first more))) (next more))
            "--width" (recur (assoc opts :width (parse-positive-long-option arg (first more))) (next more))
@@ -439,7 +466,7 @@
        "  EINK_NATIVE_LIB=result-kobo-native/lib/libclojure_eink.so \\\n"
        "    clojure -J--enable-native-access=ALL-UNNAMED -M -m ol.project --present\n\n"
        "Options: --text TEXT --width N --height N --renders N --repeat N "
-       "--render-mode layout|cached-layout|simple-text|rects "
+       "--render-mode layout|cached-layout|simple-text|rects --reuse-image "
        "--present --no-present --present-last --present-each "
        "--waveform auto|du|gc16|gl16|a2 --no-flash --no-wait"))
 
@@ -460,8 +487,11 @@
         total-renders (:renders opts)
         layout-cache  (when (= :cached-layout (:render-mode opts))
                         (or (:layout-cache opts) (atom {})))
+        image-cache   (when (:reuse-image? opts)
+                        (or (:image-cache opts) (atom nil)))
         render-opts   (cond-> (assoc opts :width width :height height)
-                        layout-cache (assoc :layout-cache layout-cache))
+                        layout-cache (assoc :layout-cache layout-cache)
+                        image-cache (assoc :image-cache image-cache))
         last-image    (loop [iteration 1
                              last-image nil]
                         (if (> iteration total-renders)
