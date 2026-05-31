@@ -5,7 +5,8 @@
    [ol.membrane.skia-eink-backend :as backend])
   (:import
    [java.lang.foreign Arena MemorySegment ValueLayout]
-   [java.lang.invoke MethodHandle]))
+   [java.lang.invoke MethodHandle]
+   [java.nio.charset StandardCharsets]))
 
 (def required-abi-symbols
   ["eink_skia_last_error"
@@ -59,11 +60,26 @@
   []
   (not-empty (System/getenv "EINK_SKIA_NATIVE_LIB")))
 
+(defn- font-dir
+  []
+  (not-empty (System/getenv "EINK_FONT_DIR")))
+
 (defn- size-t
   [n]
   (if (= "32" (System/getProperty "sun.arch.data.model"))
     (int n)
     (long n)))
+
+(defn- c-string
+  [^Arena arena value]
+  (if (some? value)
+    (let [bytes   (.getBytes (str value) StandardCharsets/UTF_8)
+          segment (.allocate arena (long (inc (alength bytes))) 1)]
+      (doseq [idx (range (alength bytes))]
+        (.set segment ValueLayout/JAVA_BYTE (long idx) (aget bytes idx)))
+      (.set segment ValueLayout/JAVA_BYTE (long (alength bytes)) (byte 0))
+      segment)
+    MemorySegment/NULL))
 
 (defn- load-test-native
   []
@@ -75,13 +91,23 @@
      (do ~@body)
      (is true "skipped: EINK_SKIA_NATIVE_LIB is absent")))
 
+(defmacro with-test-native-and-fonts
+  [[native-binding font-dir-binding] & body]
+  `(with-test-native [~native-binding]
+     (if-let [~font-dir-binding (font-dir)]
+       (do ~@body)
+       (is true "skipped: EINK_FONT_DIR is absent"))))
+
 (defn- create-ctx
-  [native width height]
-  (backend/invoke-native (:create native)
-                         (int width)
-                         (int height)
-                         MemorySegment/NULL
-                         MemorySegment/NULL))
+  ([native width height]
+   (create-ctx native width height (font-dir) nil))
+  ([native width height font-dir family]
+   (with-open [arena (Arena/ofConfined)]
+     (backend/invoke-native (:create native)
+                            (int width)
+                            (int height)
+                            (c-string arena font-dir)
+                            (c-string arena family)))))
 
 (defn- destroy-ctx
   [native ctx]
@@ -118,6 +144,54 @@
                              segment
                              (int (count points))
                              (int (if closed? 1 0))))))
+
+(defn- text-bounds
+  [native ctx text family size weight slant max-width]
+  (with-open [arena (Arena/ofConfined)]
+    (let [text-bytes  (.getBytes text StandardCharsets/UTF_8)
+          text-seg    (c-string arena text)
+          family-seg  (c-string arena family)
+          width-seg   (.allocate arena (long 4) 4)
+          height-seg  (.allocate arena (long 4) 4)
+          ascent-seg  (.allocate arena (long 4) 4)
+          descent-seg (.allocate arena (long 4) 4)
+          leading-seg (.allocate arena (long 4) 4)
+          rv          (backend/invoke-native (:text-bounds native)
+                                             ctx
+                                             text-seg
+                                             (int (alength text-bytes))
+                                             family-seg
+                                             (float size)
+                                             (int weight)
+                                             (int slant)
+                                             (float max-width)
+                                             width-seg
+                                             height-seg
+                                             ascent-seg
+                                             descent-seg
+                                             leading-seg)]
+      {:rv      rv
+       :width   (.get width-seg ValueLayout/JAVA_FLOAT 0)
+       :height  (.get height-seg ValueLayout/JAVA_FLOAT 0)
+       :ascent  (.get ascent-seg ValueLayout/JAVA_FLOAT 0)
+       :descent (.get descent-seg ValueLayout/JAVA_FLOAT 0)
+       :leading (.get leading-seg ValueLayout/JAVA_FLOAT 0)})))
+
+(defn- draw-text-box
+  [native ctx text family size weight slant x y max-width]
+  (with-open [arena (Arena/ofConfined)]
+    (let [text-bytes (.getBytes text StandardCharsets/UTF_8)]
+      (backend/invoke-native (:draw-text-box native)
+                             ctx
+                             (c-string arena text)
+                             (int (alength text-bytes))
+                             (c-string arena family)
+                             (float size)
+                             (int weight)
+                             (int slant)
+                             (float x)
+                             (float y)
+                             (float max-width)))))
 
 (deftest default-native-lib-keeps-skia-env-separate-test
   (testing "Skia native discovery uses EINK_SKIA_NATIVE_LIB and never EINK_NATIVE_LIB"
@@ -169,7 +243,7 @@
       (is true "skipped: EINK_SKIA_NATIVE_LIB is absent"))))
 
 (deftest native-context-create-destroy-test
-  (with-test-native [native]
+  (with-test-native-and-fonts [native _font-dir]
     (testing "creating a native gray8 context exposes stable geometry"
       (let [ctx (create-ctx native 13 7)]
         (try
@@ -190,8 +264,25 @@
         (is (= MemorySegment/NULL ctx))
         (is (re-find #"invalid dimensions" (backend/native-last-error native)))))))
 
-(deftest native-context-clear-copy-test
+(deftest native-font-directory-validation-test
   (with-test-native [native]
+    (testing "missing font directories fail clearly"
+      (let [ctx (create-ctx native 12 8 "/definitely/missing/eink-fonts" nil)]
+        (is (= MemorySegment/NULL ctx))
+        (is (re-find #"font directory" (backend/native-last-error native)))))
+    (testing "empty font directories fail clearly"
+      (let [dir (java.nio.file.Files/createTempDirectory
+                 "empty-eink-fonts"
+                 (make-array java.nio.file.attribute.FileAttribute 0))]
+        (try
+          (let [ctx (create-ctx native 12 8 (str dir) nil)]
+            (is (= MemorySegment/NULL ctx))
+            (is (re-find #"font directory is empty" (backend/native-last-error native))))
+          (finally
+            (io/delete-file (.toFile dir) true)))))))
+
+(deftest native-context-clear-copy-test
+  (with-test-native-and-fonts [native _font-dir]
     (testing "clear to white fills every gray8 byte and copy reports undersized buffers"
       (let [ctx (create-ctx native 4 3)]
         (try
@@ -207,7 +298,7 @@
             (is (= 0 (destroy-ctx native ctx)))))))))
 
 (deftest native-context-repeated-create-destroy-test
-  (with-test-native [native]
+  (with-test-native-and-fonts [native _font-dir]
     (testing "contexts can be repeatedly created and destroyed"
       (is (= {:iterations 25
               :failures   0}
@@ -224,7 +315,7 @@
                      (range 25)))))))
 
 (deftest native-draw-rect-makes-gray8-nonwhite-test
-  (with-test-native [native]
+  (with-test-native-and-fonts [native _font-dir]
     (testing "drawing a black filled rectangle changes gray8 pixels from white"
       (let [ctx (create-ctx native 32 16)]
         (try
@@ -239,7 +330,7 @@
             (is (= 0 (destroy-ctx native ctx)))))))))
 
 (deftest native-transform-clip-and-restore-test
-  (with-test-native [native]
+  (with-test-native-and-fonts [native _font-dir]
     (testing "save/clip/restore and translate/scale affect primitive drawing"
       (let [ctx (create-ctx native 20 8)]
         (try
@@ -265,7 +356,7 @@
             (is (= 0 (destroy-ctx native ctx)))))))))
 
 (deftest native-draw-round-rect-and-path-test
-  (with-test-native [native]
+  (with-test-native-and-fonts [native _font-dir]
     (testing "rounded rectangles and stroked paths draw visible gray8 pixels"
       (let [ctx (create-ctx native 32 24)]
         (try
@@ -281,3 +372,41 @@
             (is (some dark? (drop (+ 18 (* 3 32)) bytes))))
           (finally
             (is (= 0 (destroy-ctx native ctx)))))))))
+
+(deftest native-text-bounds-and-draw-text-box-test
+  (with-test-native-and-fonts [native font-dir]
+    (testing "SkParagraph text bounds are positive and drawing text changes gray8 pixels"
+      (let [ctx (create-ctx native 180 96 font-dir "Noto Sans")]
+        (try
+          (is (not= MemorySegment/NULL ctx))
+          (when (not= MemorySegment/NULL ctx)
+            (let [bounds (text-bounds native
+                                      ctx
+                                      "SkParagraph wraps text — Café 123"
+                                      "Noto Sans"
+                                      18
+                                      400
+                                      0
+                                      120)]
+              (is (= 0 (:rv bounds)))
+              (is (pos? (:width bounds)))
+              (is (pos? (:height bounds)))
+              (is (pos? (:ascent bounds)))
+              (is (not (neg? (:descent bounds)))))
+            (is (= 0 (backend/invoke-native (:clear native) ctx (unchecked-byte 255))))
+            (is (= 0 (backend/invoke-native (:set-color native) ctx (float 0.0) (float 0.0) (float 0.0) (float 1.0))))
+            (is (= 0 (draw-text-box native
+                                    ctx
+                                    "Visible SkParagraph text"
+                                    "Noto Serif"
+                                    20
+                                    400
+                                    0
+                                    4
+                                    4
+                                    150)))
+            (let [{:keys [bytes]} (copy-ctx-bytes native ctx (* 180 96))]
+              (is (some dark? bytes))))
+          (finally
+            (when (not= MemorySegment/NULL ctx)
+              (is (= 0 (destroy-ctx native ctx))))))))))

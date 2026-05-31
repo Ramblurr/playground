@@ -1,30 +1,44 @@
 #include "eink_skia_native.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cerrno>
 #include <cmath>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <limits>
+#include <memory>
 #include <new>
 #include <string>
 #include <vector>
 
 #include "core/SkCanvas.h"
 #include "core/SkColor.h"
+#include "core/SkFontMgr.h"
+#include "core/SkFontStyle.h"
 #include "core/SkImageInfo.h"
 #include "core/SkPaint.h"
 #include "core/SkPath.h"
 #include "core/SkPathBuilder.h"
 #include "core/SkRect.h"
-#include "core/SkRRect.h"
 #include "core/SkRefCnt.h"
+#include "core/SkString.h"
 #include "core/SkSurface.h"
 #include "core/SkTypes.h"
+#include "modules/skparagraph/include/FontCollection.h"
+#include "modules/skparagraph/include/Metrics.h"
+#include "modules/skparagraph/include/Paragraph.h"
+#include "modules/skparagraph/include/ParagraphBuilder.h"
+#include "modules/skparagraph/include/ParagraphStyle.h"
+#include "modules/skparagraph/include/TextStyle.h"
+#include "modules/skunicode/include/SkUnicode_icu.h"
+#include "ports/SkFontMgr_directory.h"
 
 namespace {
+namespace textlayout = skia::textlayout;
 
 thread_local char last_error[512] = "";
 
@@ -37,6 +51,10 @@ struct eink_skia_context {
     sk_sp<SkSurface> surface;
     SkCanvas *canvas;
     SkPaint paint;
+    sk_sp<SkFontMgr> font_mgr;
+    sk_sp<textlayout::FontCollection> font_collection;
+    sk_sp<SkUnicode> unicode;
+    std::string font_dir;
     std::string default_family;
 };
 
@@ -117,6 +135,166 @@ int ensure_positive_rect(const char *function_name, float width, float height) {
     return 0;
 }
 
+bool has_supported_font_extension(const std::filesystem::path &path) {
+    std::string extension = path.extension().string();
+    std::transform(extension.begin(),
+                   extension.end(),
+                   extension.begin(),
+                   [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    return extension == ".ttf" || extension == ".otf" || extension == ".ttc";
+}
+
+int validate_font_dir(const char *font_dir, std::string *out_path) {
+    if (font_dir == nullptr || font_dir[0] == '\0') {
+        return fail_with_code(EINVAL, "eink_skia_create: font directory is required (EINK_FONT_DIR)");
+    }
+
+    std::filesystem::path dir(font_dir);
+    std::error_code ec;
+    std::filesystem::file_status status = std::filesystem::status(dir, ec);
+    if (ec || !std::filesystem::exists(status)) {
+        return fail_with_code(EINVAL,
+                              "eink_skia_create: font directory does not exist: %s",
+                              font_dir);
+    }
+    if (!std::filesystem::is_directory(status)) {
+        return fail_with_code(EINVAL,
+                              "eink_skia_create: font directory is not a directory: %s",
+                              font_dir);
+    }
+
+    bool found_font = false;
+    std::filesystem::directory_iterator it(dir,
+                                           std::filesystem::directory_options::skip_permission_denied,
+                                           ec);
+    if (ec) {
+        return fail_with_code(EINVAL,
+                              "eink_skia_create: font directory cannot be read: %s",
+                              font_dir);
+    }
+    for (std::filesystem::directory_iterator end; it != end; it.increment(ec)) {
+        if (ec) {
+            ec.clear();
+            continue;
+        }
+        std::filesystem::file_status entry_status = it->status(ec);
+        if (ec) {
+            ec.clear();
+            continue;
+        }
+        if (std::filesystem::is_regular_file(entry_status) && has_supported_font_extension(it->path())) {
+            found_font = true;
+            break;
+        }
+    }
+
+    if (!found_font) {
+        return fail_with_code(EINVAL,
+                              "eink_skia_create: font directory is empty: %s",
+                              font_dir);
+    }
+
+    *out_path = dir.string();
+    return 0;
+}
+
+SkFontStyle::Slant decode_slant(int slant) {
+    switch (slant) {
+        case 1:
+            return SkFontStyle::kItalic_Slant;
+        case 2:
+            return SkFontStyle::kOblique_Slant;
+        case 0:
+        default:
+            return SkFontStyle::kUpright_Slant;
+    }
+}
+
+int normalize_weight(int weight) {
+    if (weight <= 0) {
+        return SkFontStyle::kNormal_Weight;
+    }
+    return std::clamp(weight,
+                      static_cast<int>(SkFontStyle::kInvisible_Weight),
+                      static_cast<int>(SkFontStyle::kExtraBlack_Weight));
+}
+
+const char *select_family(eink_skia_context *context, const char *family) {
+    if (family != nullptr && family[0] != '\0') {
+        return family;
+    }
+    return context->default_family.c_str();
+}
+
+std::unique_ptr<textlayout::Paragraph> make_paragraph(eink_skia_context *context,
+                                                       const char *function_name,
+                                                       const char *utf8,
+                                                       int utf8_len,
+                                                       const char *family,
+                                                       float size,
+                                                       int weight,
+                                                       int slant,
+                                                       float max_width) {
+    if (utf8 == nullptr) {
+        fail_with_code(EINVAL, "%s: utf8 is NULL", function_name);
+        return nullptr;
+    }
+    if (utf8_len < 0) {
+        fail_with_code(EINVAL, "%s: invalid utf8_len=%d", function_name, utf8_len);
+        return nullptr;
+    }
+    if (!(size > 0.0f) || !std::isfinite(size)) {
+        fail_with_code(EINVAL, "%s: invalid size=%g", function_name, static_cast<double>(size));
+        return nullptr;
+    }
+    if (!(max_width > 0.0f) || !std::isfinite(max_width)) {
+        fail_with_code(EINVAL,
+                       "%s: invalid max_width=%g",
+                       function_name,
+                       static_cast<double>(max_width));
+        return nullptr;
+    }
+    if (!context->font_collection || !context->unicode) {
+        fail_with_code(EINVAL, "%s: font collection is not initialized", function_name);
+        return nullptr;
+    }
+
+    SkPaint foreground = context->paint;
+    foreground.setStyle(SkPaint::kFill_Style);
+
+    textlayout::TextStyle text_style;
+    text_style.setForegroundPaint(foreground);
+    text_style.setColor(context->paint.getColor());
+    text_style.setFontSize(size);
+    text_style.setFontStyle(SkFontStyle(normalize_weight(weight),
+                                        SkFontStyle::kNormal_Width,
+                                        decode_slant(slant)));
+    text_style.setFontFamilies({SkString(select_family(context, family))});
+    text_style.setTextBaseline(textlayout::TextBaseline::kAlphabetic);
+
+    textlayout::ParagraphStyle paragraph_style;
+    paragraph_style.setTextDirection(textlayout::TextDirection::kLtr);
+    paragraph_style.setTextStyle(text_style);
+
+    auto builder = textlayout::ParagraphBuilder::make(paragraph_style,
+                                                      context->font_collection,
+                                                      context->unicode);
+    if (!builder) {
+        fail_with_code(EINVAL, "%s: failed to create paragraph builder", function_name);
+        return nullptr;
+    }
+
+    builder->addText(utf8, static_cast<size_t>(utf8_len));
+    auto paragraph = builder->Build();
+    if (!paragraph) {
+        fail_with_code(EINVAL, "%s: failed to build paragraph", function_name);
+        return nullptr;
+    }
+
+    paragraph->layout(max_width);
+    return paragraph;
+}
+
 } // namespace
 
 const char *eink_skia_last_error(void) {
@@ -127,11 +305,14 @@ void *eink_skia_create(int width,
                        int height,
                        const char *font_dir,
                        const char *default_family) {
-    (void)font_dir;
-
     size_t pixel_count = 0;
     if (!checked_buffer_len(width, height, &pixel_count)) {
         set_error("eink_skia_create: invalid dimensions width=%d height=%d", width, height);
+        return nullptr;
+    }
+
+    std::string font_dir_path;
+    if (validate_font_dir(font_dir, &font_dir_path) != 0) {
         return nullptr;
     }
 
@@ -146,7 +327,38 @@ void *eink_skia_create(int width,
         ctx->paint.setAntiAlias(true);
         ctx->paint.setStyle(SkPaint::kFill_Style);
         ctx->paint.setColor(SK_ColorBLACK);
-        ctx->default_family = default_family != nullptr ? default_family : "";
+        ctx->font_dir = font_dir_path;
+
+        ctx->font_mgr = SkFontMgr_New_Custom_Directory(ctx->font_dir.c_str());
+        if (!ctx->font_mgr) {
+            set_error("eink_skia_create: failed to create font manager for %s", font_dir_path.c_str());
+            delete ctx;
+            return nullptr;
+        }
+        if (ctx->font_mgr->countFamilies() <= 0) {
+            delete ctx;
+            set_error("eink_skia_create: font directory has no usable font families: %s", font_dir);
+            return nullptr;
+        }
+
+        if (default_family != nullptr && default_family[0] != '\0') {
+            ctx->default_family = default_family;
+        } else {
+            SkString family_name;
+            ctx->font_mgr->getFamilyName(0, &family_name);
+            ctx->default_family = family_name.c_str();
+        }
+
+        ctx->unicode = SkUnicodes::ICU::Make();
+        if (!ctx->unicode) {
+            delete ctx;
+            set_error("eink_skia_create: failed to initialize ICU SkUnicode");
+            return nullptr;
+        }
+
+        ctx->font_collection = sk_make_sp<textlayout::FontCollection>();
+        ctx->font_collection->setDefaultFontManager(ctx->font_mgr, ctx->default_family.c_str());
+        ctx->font_collection->enableFontFallback();
 
         SkImageInfo info = SkImageInfo::Make(width,
                                              height,
@@ -163,6 +375,9 @@ void *eink_skia_create(int width,
         return ctx;
     } catch (const std::bad_alloc &) {
         set_error("eink_skia_create: allocation failed for width=%d height=%d", width, height);
+        return nullptr;
+    } catch (const std::exception &ex) {
+        set_error("eink_skia_create: unexpected error: %s", ex.what());
         return nullptr;
     } catch (...) {
         set_error("eink_skia_create: unexpected error");
@@ -391,20 +606,46 @@ int eink_skia_text_bounds(void *ctx,
                           float *out_ascent,
                           float *out_descent,
                           float *out_leading) {
-    (void)ctx;
-    (void)utf8;
-    (void)utf8_len;
-    (void)family;
-    (void)size;
-    (void)weight;
-    (void)slant;
-    (void)max_width;
-    (void)out_width;
-    (void)out_height;
-    (void)out_ascent;
-    (void)out_descent;
-    (void)out_leading;
-    return not_implemented("eink_skia_text_bounds");
+    eink_skia_context *context = as_context(ctx, "eink_skia_text_bounds");
+    if (context == nullptr) {
+        return -EINVAL;
+    }
+    if (out_width == nullptr || out_height == nullptr || out_ascent == nullptr ||
+        out_descent == nullptr || out_leading == nullptr) {
+        return fail_with_code(EINVAL, "eink_skia_text_bounds: output pointer is NULL");
+    }
+
+    auto paragraph = make_paragraph(context,
+                                    "eink_skia_text_bounds",
+                                    utf8,
+                                    utf8_len,
+                                    family,
+                                    size,
+                                    weight,
+                                    slant,
+                                    max_width);
+    if (!paragraph) {
+        return -EINVAL;
+    }
+
+    *out_width = paragraph->getLongestLine();
+    *out_height = paragraph->getHeight();
+
+    std::vector<textlayout::LineMetrics> line_metrics;
+    paragraph->getLineMetrics(line_metrics);
+    if (!line_metrics.empty()) {
+        const textlayout::LineMetrics &first = line_metrics.front();
+        *out_ascent = static_cast<float>(first.fAscent);
+        *out_descent = static_cast<float>(first.fDescent);
+        *out_leading = static_cast<float>(std::max(0.0, first.fHeight - first.fAscent - first.fDescent));
+    } else {
+        *out_ascent = 0.0f;
+        *out_descent = 0.0f;
+        *out_leading = 0.0f;
+    }
+
+    clear_error();
+    return 0;
 }
 
 int eink_skia_draw_text_box(void *ctx,
@@ -417,17 +658,27 @@ int eink_skia_draw_text_box(void *ctx,
                             float x,
                             float y,
                             float max_width) {
-    (void)ctx;
-    (void)utf8;
-    (void)utf8_len;
-    (void)family;
-    (void)size;
-    (void)weight;
-    (void)slant;
-    (void)x;
-    (void)y;
-    (void)max_width;
-    return not_implemented("eink_skia_draw_text_box");
+    eink_skia_context *context = as_context(ctx, "eink_skia_draw_text_box");
+    if (context == nullptr) {
+        return -EINVAL;
+    }
+
+    auto paragraph = make_paragraph(context,
+                                    "eink_skia_draw_text_box",
+                                    utf8,
+                                    utf8_len,
+                                    family,
+                                    size,
+                                    weight,
+                                    slant,
+                                    max_width);
+    if (!paragraph) {
+        return -EINVAL;
+    }
+
+    paragraph->paint(context->canvas, x, y);
+    clear_error();
+    return 0;
 }
 
 int eink_skia_copy_gray8(void *ctx, unsigned char *dst, size_t dst_len) {

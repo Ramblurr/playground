@@ -18,7 +18,7 @@ stdenv.mkDerivation {
   buildPhase = ''
     runHook preBuild
 
-    $CXX -std=c++20 -Wall -Wextra -Werror -O2 -fPIC \
+    $CXX -std=c++20 -Wall -Wextra -Werror -Wno-error=attributes -O2 -fPIC \
       -I src/native \
       -I ${skia}/include/skia \
       -DSKIA_DLL \
@@ -27,7 +27,7 @@ stdenv.mkDerivation {
       -Wl,-rpath,'$ORIGIN' \
       -shared -o libclojure_eink_skia.so \
       src/native/eink_skia_native.cpp \
-      -lskia
+      -lskparagraph -lskshaper -lskunicode_icu -lskunicode_core -lskia
 
     runHook postBuild
   '';

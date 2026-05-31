@@ -136,11 +136,11 @@ Do not wait for supervisor approval between ordinary numbered sections unless bl
 
 ### 6. Font directory and text stack
 
-- [ ] Package or expose bundled Noto Sans/Noto Serif font files for host tests and Kobo dist.
-- [ ] Implement required `EINK_FONT_DIR` behavior; missing/empty font directories must fail clearly.
-- [ ] Wire `SkFontMgr_New_Custom_Directory` into SkParagraph font collection.
-- [ ] Implement `eink_skia_text_bounds` and `eink_skia_draw_text_box` with SkParagraph-backed layout.
-- [ ] Add host tests for positive text bounds and visible text pixels.
+- [x] Package or expose bundled Noto Sans/Noto Serif font files for host tests and Kobo dist.
+- [x] Implement required `EINK_FONT_DIR` behavior; missing/empty font directories must fail clearly.
+- [x] Wire `SkFontMgr_New_Custom_Directory` into SkParagraph font collection.
+- [x] Implement `eink_skia_text_bounds` and `eink_skia_draw_text_box` with SkParagraph-backed layout.
+- [x] Add host tests for positive text bounds and visible text pixels.
 
 ### 7. Membrane backend and project-local paragraph
 
@@ -394,3 +394,37 @@ Test/evidence commands:
 - `nix build .#clojure-eink-skia-bridge-kobo -o result-kobo-skia-native` => success.
 
 Section 5 blockers: none. Next section: font directory and SkParagraph-backed text stack.
+
+## Section 6 checkpoint notes
+
+Completed in Ralph iteration 2 after Section 5 was checkpointed.
+
+Changed paths for this section:
+- `resources/fonts/NotoSans.ttf` and `resources/fonts/NotoSerif.ttf` (host-test font bundle copied from nixpkgs `noto-fonts`).
+- `resources/fonts/README.md` (font bundle provenance and purpose).
+- `nix/pkgs/skia/package.nix` (makes custom-directory font manager explicit, installs required `src/*.h` headers used by SkParagraph public headers, and exports component symbols needed by consumers).
+- `nix/pkgs/clojure-eink-skia-bridge/package.nix` (links the bridge against `libskparagraph`, `libskshaper`, and `libskunicode_*` in addition to `libskia`).
+- `src/native/eink_skia_native.cpp` (required font directory validation, custom-directory font manager, ICU `SkUnicode`, SkParagraph text bounds and draw implementation).
+- `test/clj/ol/membrane/skia_eink_backend_test.clj` (FFM helpers for UTF-8 strings, required-font-directory tests, and SkParagraph bounds/draw visibility tests).
+- `.ralph/skia-membrane-fbink-poc.md` (this evidence log).
+
+Implementation notes:
+- `eink_skia_create` now requires a non-empty font directory and validates that it exists, is a directory, and contains at least one `.ttf`, `.otf`, or `.ttc` file before creating a context.
+- The native context initializes `SkFontMgr_New_Custom_Directory`, `skia::textlayout::FontCollection`, and `SkUnicodes::ICU::Make`; the first discovered font family is used when no default family is passed.
+- `eink_skia_text_bounds` and `eink_skia_draw_text_box` now build/layout/paint through `skia::textlayout::ParagraphBuilder`/`Paragraph`; no `SkCanvas::drawSimpleText` placeholder is used.
+- The host tests use the bundled Noto fonts via `EINK_FONT_DIR=resources/fonts` and verify positive bounds plus non-white gray8 pixels after paragraph drawing.
+- Skia package changes were needed because SkParagraph public headers include `src/core/*`, and because component builds hid SkParagraph C++ symbols unless the focused package compiles the needed components with default visibility.
+- `skia_use_bidi` remains `false`; current ICU-enabled SkUnicode build includes full ICU BiDi sources. Revisit if later tests require the separate subset `skunicode_bidi` component.
+
+Test/evidence commands:
+- RED before implementation: `EINK_SKIA_NATIVE_LIB=result-skia-native/lib/libclojure_eink_skia.so EINK_FONT_DIR=resources/fonts bb test --focus ol.membrane.skia-eink-backend-test` failed with expected missing font validation and text `-ENOSYS`/missing behavior before native implementation.
+- `nix build .#clojure-eink-skia-bridge -o result-skia-native` => success after SkParagraph/font implementation.
+- `ldd -r result-skia-native/lib/libclojure_eink_skia.so | tail -40` => no `undefined symbol` lines after adding SkParagraph link libraries and Skia visibility/header fixes.
+- `EINK_SKIA_NATIVE_LIB=result-skia-native/lib/libclojure_eink_skia.so EINK_FONT_DIR=resources/fonts bb test --focus ol.membrane.skia-eink-backend-test` => `13 tests, 63 assertions, 0 failures`.
+- `cljfmt check src/clj/ol/membrane/skia_eink_backend.clj test/clj/ol/membrane/skia_eink_backend_test.clj` => `All source files formatted correctly`.
+- `EINK_SKIA_NATIVE_LIB=result-skia-native/lib/libclojure_eink_skia.so EINK_FONT_DIR=resources/fonts bb test` => `42 tests, 157 assertions, 0 failures`.
+- `unset EINK_SKIA_NATIVE_LIB EINK_FONT_DIR; bb test` => `42 tests, 108 assertions, 0 failures`.
+- `nix build .#clojure-eink-skia-bridge-kobo -o result-kobo-skia-native` => success.
+- `file result-kobo-skia-native/lib/libclojure_eink_skia.so` => `ELF 32-bit LSB shared object, ARM, EABI5 version 1 (SYSV), dynamically linked, not stripped`.
+
+Section 6 blockers: none. Next section: Membrane backend and project-local paragraph.

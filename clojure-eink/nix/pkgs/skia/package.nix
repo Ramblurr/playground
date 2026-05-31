@@ -89,6 +89,7 @@ stdenv.mkDerivation (finalAttrs: {
       # Keep text shaping and Unicode; avoid system font discovery.
       "skia_use_freetype=true"
       "skia_use_fontconfig=false"
+      "skia_enable_fontmgr_custom_directory=true"
       "skia_use_harfbuzz=true"
       "skia_use_icu=true"
       "skia_use_client_icu=false"
@@ -125,7 +126,8 @@ stdenv.mkDerivation (finalAttrs: {
       "skia_enable_tools=false"
 
       # System dependencies. HarfBuzz headers are included as <hb.h> in places.
-      "extra_cflags=[\"-I${lib.getDev harfbuzzFull}/include/harfbuzz\",\"-I${lib.getDev freetype}/include/freetype2\"]"
+      "extra_cflags=[\"-I${lib.getDev harfbuzzFull}/include/harfbuzz\",\"-I${lib.getDev freetype}/include/freetype2\",\"-fvisibility=default\"]"
+      "extra_cflags_cc=[\"-fvisibility=default\"]"
       "skia_use_system_zlib=true"
       "skia_use_system_harfbuzz=true"
       "skia_use_system_icu=true"
@@ -150,6 +152,10 @@ stdenv.mkDerivation (finalAttrs: {
 
     pushd ../../include
     find . -name '*.h' -exec install -Dm644 {} "$out/include/skia/{}" \;
+    popd
+
+    pushd ../../src
+    find . -name '*.h' -exec install -Dm644 {} "$out/include/skia/src/{}" \;
     popd
 
     pushd ../../modules
