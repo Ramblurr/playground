@@ -35,6 +35,21 @@ EOF
   exit 1
 fi
 
+if [[ -d "$ROOT/result-kobo-skia-native/lib" ]]; then
+  cp -P "$ROOT"/result-kobo-skia-native/lib/libclojure_eink_skia.so "$DIST/lib/"
+  cp -P "$ROOT"/result-kobo-skia-native/lib/libsk*.so* "$DIST/lib/"
+elif [[ ! -f "$DIST/lib/libclojure_eink_skia.so" ]]; then
+  cat >&2 <<'EOF'
+Missing target/dist/lib/libclojure_eink_skia.so.
+Build or link the Kobo Skia native package first, for example:
+
+  nix build .#clojure-eink-skia-bridge-kobo -o result-kobo-skia-native
+
+Then rerun this script.
+EOF
+  exit 1
+fi
+
 rm -rf "$DIST/src"
 mkdir -p "$DIST/src"
 cp -R "$ROOT/src/clj" "$DIST/src/"
@@ -52,6 +67,10 @@ while IFS= read -r cp_entry; do
   fi
 done < <(clojure -Spath | tr ':' '\n')
 
+
+rm -rf "$DIST/fonts"
+mkdir -p "$DIST/fonts"
+cp -P "$ROOT"/resources/fonts/* "$DIST/fonts/"
 cat > "$DIST/run-demo.sh" <<'EOF'
 #!/bin/sh
 set -eu
@@ -204,6 +223,40 @@ exec "$JAVA_BIN" \
   clojure.main -m ol.membrane-demo --loop --present "$@"
 EOF
 
+cat > "$DIST/run-membrane-skia-demo.sh" <<'EOF'
+#!/bin/sh
+set -eu
+
+APP_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+KOBO_JDK_HOME=${KOBO_JDK_HOME:-/nix/kobo-jdk25-clojure-fast-uberwarm-ffm-java2d}
+JAVA_BIN=${KOBO_JAVA:-$KOBO_JDK_HOME/jdk/bin/java}
+CLOJURE_JAR=${KOBO_CLOJURE_JAR:-$KOBO_JDK_HOME/lib/clojure-uber-1.12.4.jar}
+
+if [ ! -x "$JAVA_BIN" ]; then
+  echo "Cannot find executable java at: $JAVA_BIN" >&2
+  echo "Set KOBO_JAVA=/path/to/java or KOBO_JDK_HOME=/path/to/kobo-jdk-image." >&2
+  exit 127
+fi
+if [ ! -f "$CLOJURE_JAR" ]; then
+  echo "Cannot find Clojure jar at: $CLOJURE_JAR" >&2
+  echo "Set KOBO_CLOJURE_JAR=/path/to/clojure-uber.jar or KOBO_JDK_HOME=/path/to/kobo-jdk-image." >&2
+  exit 127
+fi
+
+export EINK_SKIA_NATIVE_LIB="$APP_DIR/lib/libclojure_eink_skia.so"
+export EINK_FONT_DIR="$APP_DIR/fonts"
+export LD_LIBRARY_PATH="$APP_DIR/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+# JAVA_OPTS is intentionally shell-split for simple flags like -Xmx128m.
+# shellcheck disable=SC2086
+exec "$JAVA_BIN" \
+  --enable-native-access=ALL-UNNAMED \
+  -Djava.awt.headless=true \
+  ${JAVA_OPTS:-} \
+  -cp "$APP_DIR/src/clj:$APP_DIR/lib/java/*:$CLOJURE_JAR:$APP_DIR/clojure-eink-demo.jar" \
+  clojure.main -m ol.membrane-skia-demo --present "$@"
+EOF
+
 cat > "$DIST/README-KOBO.txt" <<'EOF'
 Clojure e-ink PoC Kobo dist
 ===========================
@@ -221,11 +274,15 @@ Long-lived reload loop:
 
   ./run-loop.sh --render-mode cached-layout --reuse-image --no-wait --no-flash
 
-Membrane FBInk render proof:
+Membrane Skia render proof:
+
+  ./run-membrane-skia-demo.sh --no-wait --no-flash
+
+Membrane Java2D FBInk render proof:
 
   ./run-membrane-demo.sh --no-wait --no-flash
 
-Long-lived Membrane loop with gray8 damage tracking:
+Long-lived Membrane Java2D loop with gray8 damage tracking:
 
   ./run-membrane-loop.sh --no-wait --no-flash
 
@@ -240,7 +297,7 @@ The demo prints elapsed timings from inside Clojure. Compare those with shell
 `time` to estimate JVM/Clojure startup overhead before ol.project/-main.
 EOF
 
-chmod +x "$DIST"/run-demo.sh "$DIST"/run-loop.sh "$DIST"/run-png-smoke.sh "$DIST"/run-membrane-demo.sh "$DIST"/run-membrane-loop.sh
+chmod +x "$DIST"/run-demo.sh "$DIST"/run-loop.sh "$DIST"/run-png-smoke.sh "$DIST"/run-membrane-demo.sh "$DIST"/run-membrane-loop.sh "$DIST"/run-membrane-skia-demo.sh
 
 (
   cd "$DIST"

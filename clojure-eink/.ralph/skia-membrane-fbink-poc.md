@@ -151,10 +151,10 @@ Do not wait for supervisor approval between ordinary numbered sections unless bl
 
 ### 8. Demo and packaging
 
-- [ ] Add `src/clj/ol/membrane_skia_demo.clj`.
-- [ ] Add packaged `run-membrane-skia-demo.sh` that sets `EINK_SKIA_NATIVE_LIB`, `EINK_FONT_DIR`, and `LD_LIBRARY_PATH`.
-- [ ] Update `scripts/package-kobo-dist.sh` without making existing Java2D scripts depend on Skia.
-- [ ] Add tests for package script output and environment setup.
+- [x] Add `src/clj/ol/membrane_skia_demo.clj`.
+- [x] Add packaged `run-membrane-skia-demo.sh` that sets `EINK_SKIA_NATIVE_LIB`, `EINK_FONT_DIR`, and `LD_LIBRARY_PATH`.
+- [x] Update `scripts/package-kobo-dist.sh` without making existing Java2D scripts depend on Skia.
+- [x] Add tests for package script output and environment setup.
 
 ### 9. FBInk present and Kobo smoke
 
@@ -457,3 +457,36 @@ Test/evidence commands:
 - `EINK_SKIA_NATIVE_LIB=result-skia-native/lib/libclojure_eink_skia.so EINK_FONT_DIR=resources/fonts clojure -M:kaocha` => `46 tests, 167 assertions, 0 failures`.
 
 Section 7 blockers: none. Next section: demo namespace and Kobo packaging script support.
+
+## Section 8 checkpoint notes
+
+Completed in this Ralph iteration.
+
+Changed paths for this section:
+- `src/clj/ol/membrane_skia_demo.clj` (new Skia Membrane demo namespace with title, SkParagraph-backed paragraph, rounded action rectangle, and Unicode smoke line).
+- `test/clj/ol/membrane_skia_demo_test.clj` (new demo structure and Skia-backend render tests).
+- `scripts/package-kobo-dist.sh` (copies Kobo Skia bridge/runtime libs, copies `resources/fonts`, writes `run-membrane-skia-demo.sh`, and documents the Skia smoke command).
+- `test/clj/ol/package_kobo_dist_test.clj` (package-script tests for Skia runtime setup and Java2D script env isolation).
+- `.ralph/skia-membrane-fbink-poc.md` (this evidence log).
+
+Implementation notes:
+- `ol.membrane-skia-demo/demo-ui` builds a fixed-size Membrane value with white background, black title, a project-local `backend/paragraph` body, rounded rectangle/button proof, and `Unicode smoke: Café — Ω`.
+- `demo-view` consumes `:container-size` and `:context` from the Skia backend's container-info path so centered text can use Skia text bounds when rendering.
+- `-main` reuses `ol.project/parse-args` and opens a Skia backend context; `--present` is accepted for the packaged Kobo command, while `--no-present` works for host smoke before Section 9 present is implemented.
+- `scripts/package-kobo-dist.sh` now requires/copies `result-kobo-skia-native/lib/libclojure_eink_skia.so` and `libsk*.so*` beside the existing Java2D native bridge, and copies bundled fonts to `target/dist/fonts`.
+- The new packaged `run-membrane-skia-demo.sh` sets only Skia-specific env (`EINK_SKIA_NATIVE_LIB`, `EINK_FONT_DIR`) plus `LD_LIBRARY_PATH`; existing Java2D `run-membrane-demo.sh`/`run-membrane-loop.sh` continue to set `EINK_NATIVE_LIB` and do not depend on Skia env vars.
+- A balancing mishap while creating the demo namespace initially left `demo-view`/`-main` inside `demo-ui`; this was caught by the demo tests and fixed before final verification.
+
+Test/evidence commands:
+- RED before implementation: `EINK_SKIA_NATIVE_LIB=result-skia-native/lib/libclojure_eink_skia.so EINK_FONT_DIR=resources/fonts bb test --focus ol.membrane-skia-demo-test --focus ol.package-kobo-dist-test/package-script-ships-skia-demo-runtime-test --focus ol.package-kobo-dist-test/java2d-membrane-script-stays-on-old-native-env-test` => expected RED: missing demo vars and missing Skia packaging/runtime script pieces.
+- `cljfmt fix src/clj/ol/membrane_skia_demo.clj test/clj/ol/membrane_skia_demo_test.clj test/clj/ol/package_kobo_dist_test.clj`, then `cljfmt check ...` => `All source files formatted correctly`.
+- `EINK_SKIA_NATIVE_LIB=result-skia-native/lib/libclojure_eink_skia.so EINK_FONT_DIR=resources/fonts bb test --focus ol.membrane-skia-demo-test --focus ol.package-kobo-dist-test` => `5 tests, 9 assertions, 0 failures`.
+- Host no-present smoke: `EINK_SKIA_NATIVE_LIB=result-skia-native/lib/libclojure_eink_skia.so EINK_FONT_DIR=resources/fonts clojure -M -m ol.membrane-skia-demo --no-present --width 240 --height 160` => rendered `240 x 160` without native present.
+- `nix build .#clojure-eink-fbink-bridge-kobo -o result-kobo-native` => success; restored the Java2D Kobo bridge symlink needed by the package script.
+- `scripts/package-kobo-dist.sh` => success; packaged `target/dist` with `run-membrane-skia-demo.sh`, `lib/libclojure_eink_skia.so`, `lib/libsk*.so`, and `fonts/NotoSans.ttf`/`NotoSerif.ttf`.
+- Dist inspection: `target/dist/run-membrane-skia-demo.sh` exports `EINK_SKIA_NATIVE_LIB`, `EINK_FONT_DIR`, and `LD_LIBRARY_PATH`; dist libs include old `libclojure_eink.so`/`libfbink.so*` and new `libclojure_eink_skia.so`/`libsk*.so`; dist fonts include bundled Noto files.
+- `EINK_SKIA_NATIVE_LIB=result-skia-native/lib/libclojure_eink_skia.so EINK_FONT_DIR=resources/fonts bb test` => `50 tests, 175 assertions, 0 failures`.
+- `unset EINK_SKIA_NATIVE_LIB EINK_FONT_DIR; bb test` => `50 tests, 117 assertions, 0 failures`.
+- `EINK_SKIA_NATIVE_LIB=result-skia-native/lib/libclojure_eink_skia.so EINK_FONT_DIR=resources/fonts clojure -M:kaocha` => `50 tests, 175 assertions, 0 failures`.
+
+Section 8 blockers: none. Next section: native FBInk present and Kobo smoke. Stop for safety/rollback review before deployment or Kobo-device-changing steps.
