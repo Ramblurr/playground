@@ -116,10 +116,10 @@ Do not wait for supervisor approval between ordinary numbered sections unless bl
 
 ### 3. Clojure FFM loading
 
-- [ ] Add `src/clj/ol/membrane/skia_eink_backend.clj` with native loading for the Skia bridge only.
-- [ ] Resolve `eink_skia_last_error` first, then expand to all required symbols.
-- [ ] Keep `EINK_NATIVE_LIB` reserved for the old Java2D/FBInk bridge.
-- [ ] Add tests for missing library behavior and required symbol resolution.
+- [x] Add `src/clj/ol/membrane/skia_eink_backend.clj` with native loading for the Skia bridge only.
+- [x] Resolve `eink_skia_last_error` first, then expand to all required symbols.
+- [x] Keep `EINK_NATIVE_LIB` reserved for the old Java2D/FBInk bridge.
+- [x] Add tests for missing library behavior and required symbol resolution.
 
 ### 4. Native gray8 context
 
@@ -308,3 +308,29 @@ Test/evidence commands:
 - `EINK_SKIA_NATIVE_LIB=result-skia-native/lib/libclojure_eink_skia.so bb test` => `31 tests, 97 assertions, 0 failures`.
 
 Section 2 blockers: none. Next section: Clojure FFM loading for the Skia bridge.
+
+## Section 3 checkpoint notes
+
+Completed in Ralph iteration 3.
+
+Changed paths for this section:
+- `src/clj/ol/membrane/skia_eink_backend.clj` (new Skia-only Java FFM loader namespace).
+- `test/clj/ol/membrane/skia_eink_backend_test.clj` (loader behavior tests for env separation, missing library errors, last-error resolution, and full symbol resolution).
+- `.ralph/skia-membrane-fbink-poc.md` (this evidence log).
+
+Implementation notes:
+- `ol.membrane.skia-eink-backend/default-native-lib` reads `EINK_SKIA_NATIVE_LIB` and Skia-specific local candidates only; tests verify `EINK_NATIVE_LIB` is ignored/reserved for the old Java2D/FBInk bridge.
+- `load-native` validates nil/missing paths before FFM lookup and reports clear `ExceptionInfo` messages.
+- `load-native` resolves `eink_skia_last_error` first, then reduces over the rest of `native-symbols` to resolve the full v0 ABI into method handles.
+- `native-last-error` can already read the C string returned by `eink_skia_last_error`; current skeleton returns an empty string before any failed native call.
+- `size_t` is represented as a platform-dependent layout (`JAVA_LONG` on 64-bit JVMs, `JAVA_INT` on 32-bit JVMs) for the future `eink_skia_copy_gray8` downcall.
+
+Test/evidence commands:
+- RED before implementation: `EINK_SKIA_NATIVE_LIB=result-skia-native/lib/libclojure_eink_skia.so bb test --focus ol.membrane.skia-eink-backend-test` => expected load error because `ol.membrane.skia-eink-backend` namespace did not exist.
+- `cljfmt check src/clj/ol/membrane/skia_eink_backend.clj test/clj/ol/membrane/skia_eink_backend_test.clj` initially reported formatting differences; `cljfmt fix ...` applied only to these two files, then `cljfmt check ...` => `All source files formatted correctly`.
+- `unset EINK_SKIA_NATIVE_LIB; bb test --focus ol.membrane.skia-eink-backend-test` => `4 tests, 5 assertions, 0 failures` (native ABI checks skip when env is absent).
+- `EINK_SKIA_NATIVE_LIB=result-skia-native/lib/libclojure_eink_skia.so bb test --focus ol.membrane.skia-eink-backend-test` => `4 tests, 7 assertions, 0 failures`.
+- `unset EINK_SKIA_NATIVE_LIB; bb test` => `33 tests, 99 assertions, 0 failures`.
+- `EINK_SKIA_NATIVE_LIB=result-skia-native/lib/libclojure_eink_skia.so bb test` => `33 tests, 101 assertions, 0 failures`.
+
+Section 3 blockers: none. Next section: native gray8 context implementation.
