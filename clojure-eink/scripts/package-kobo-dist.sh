@@ -28,7 +28,7 @@ elif [[ ! -f "$DIST/lib/libclojure_eink.so" ]]; then
 Missing target/dist/lib/libclojure_eink.so.
 Build or link the Kobo native package first, for example:
 
-  nix build .#native-kobo -o result-kobo-native
+  nix build .#clojure-eink-fbink-bridge-kobo -o result-kobo-native
 
 Then rerun this script.
 EOF

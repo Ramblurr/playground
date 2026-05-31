@@ -22,53 +22,6 @@
     }:
     let
       jdk = "jdk25";
-      mkNativeLib =
-        hostPkgs: targetPkgs: device:
-        targetPkgs.stdenv.mkDerivation {
-          pname = "clojure-eink-native";
-          version = "0.0.1";
-          src = ./.;
-          fbinkSource = fbink-src;
-
-          nativeBuildInputs = [
-            hostPkgs.autoconf
-            hostPkgs.automake
-            hostPkgs.coreutils
-            hostPkgs.file
-            hostPkgs.findutils
-            hostPkgs.gnum4
-            hostPkgs.gnumake
-            hostPkgs.libtool
-          ];
-
-          buildPhase = ''
-            runHook preBuild
-
-            cp -R --no-preserve=mode,ownership "$fbinkSource" fbink
-            chmod -R u+w fbink
-            rm -rf fbink/Release
-
-            make -C fbink sharedlib ${device}=1 FBINK_VERSION=clojure-eink-poc
-
-            $CC -std=c11 -Wall -Wextra -O2 -fPIC \
-              -I fbink -L fbink/Release \
-              -Wl,-rpath,'$ORIGIN' \
-              -shared -o libclojure_eink.so \
-              src/native/eink_native.c -lfbink
-
-            runHook postBuild
-          '';
-
-          installPhase = ''
-            runHook preInstall
-
-            mkdir -p "$out/lib"
-            cp libclojure_eink.so "$out/lib/"
-            cp -P fbink/Release/libfbink.so* "$out/lib/"
-
-            runHook postInstall
-          '';
-        };
     in
     devenv.lib.mkFlake ./. {
       inherit inputs;
@@ -132,8 +85,35 @@
               runHook postInstall
             '';
           };
-        native = pkgs: mkNativeLib pkgs pkgs "LINUX";
-        native-kobo = pkgs: mkNativeLib pkgs pkgs.pkgsCross.armv7l-hf-multiplatform "KOBO";
+        fbink =
+          pkgs:
+          pkgs.callPackage ./nix/pkgs/fbink/package.nix {
+            src = fbink-src;
+            version = "clojure-eink-poc";
+            device = "LINUX";
+          };
+        fbink-kobo =
+          pkgs:
+          pkgs.pkgsCross.armv7l-hf-multiplatform.callPackage ./nix/pkgs/fbink/package.nix {
+            src = fbink-src;
+            version = "clojure-eink-poc";
+            device = "KOBO";
+          };
+        clojure-eink-fbink-bridge =
+          pkgs:
+          pkgs.callPackage ./nix/pkgs/clojure-eink-fbink-bridge/package.nix {
+            src = ./.;
+            fbink = self.packages.${pkgs.system}.fbink;
+          };
+        clojure-eink-fbink-bridge-kobo =
+          pkgs:
+          pkgs.pkgsCross.armv7l-hf-multiplatform.callPackage ./nix/pkgs/clojure-eink-fbink-bridge/package.nix
+            {
+              src = ./.;
+              fbink = self.packages.${pkgs.system}.fbink-kobo;
+            };
+        native = pkgs: self.packages.${pkgs.system}.clojure-eink-fbink-bridge;
+        native-kobo = pkgs: self.packages.${pkgs.system}.clojure-eink-fbink-bridge-kobo;
         skia =
           pkgs:
           pkgs.pkgsCross.armv7l-hf-multiplatform.callPackage ./nix/pkgs/skia/package.nix {
