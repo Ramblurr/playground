@@ -78,3 +78,13 @@
           (doseq [phase [:image-allocation :background-fill :text-layout :glyph-draw]]
             (is (contains? timings phase))
             (is (number? (get timings phase)))))))))
+
+(deftest benchmark-renders-reuses-supplied-layout-cache-test
+  (testing "long-lived loops can keep cached TextLayouts across render commands"
+    (let [cache (atom {})]
+      (project/benchmark-renders! {:width        320
+                                   :height       240
+                                   :renders      2
+                                   :render-mode  :cached-layout
+                                   :layout-cache cache})
+      (is (= 1 (count @cache))))))

@@ -72,10 +72,11 @@
                          (project/log-time! (str "queried screen height: " h))
                          h))
                      600)]
-      {:native     native
-       :native-lib native-lib
-       :width      width
-       :height     height})))
+      {:native       native
+       :native-lib   native-lib
+       :width        width
+       :height       height
+       :layout-cache (atom {})})))
 
 (defn- render-command!
   [base-opts context args]
@@ -85,7 +86,8 @@
                            :native (:native context)
                            :native-lib (:native-lib context)
                            :width (:width context)
-                           :height (:height context))]
+                           :height (:height context)
+                           :layout-cache (:layout-cache context))]
     (benchmark! opts)))
 
 (defn run-loop!
@@ -101,7 +103,7 @@
             (case command
               :blank (recur)
               :help (do (print-help!) (recur))
-              :reload (do (reload-project!) (recur))
+              :reload (do (reload-project!) (reset! (:layout-cache context) {}) (recur))
               :render (do (render-command! base-opts context args) (recur))
               :quit :quit
               :exit :quit

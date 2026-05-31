@@ -458,7 +458,8 @@
         width         (or (:width opts) 800)
         height        (or (:height opts) 600)
         total-renders (:renders opts)
-        layout-cache  (when (= :cached-layout (:render-mode opts)) (atom {}))
+        layout-cache  (when (= :cached-layout (:render-mode opts))
+                        (or (:layout-cache opts) (atom {})))
         render-opts   (cond-> (assoc opts :width width :height height)
                         layout-cache (assoc :layout-cache layout-cache))
         last-image    (loop [iteration 1
