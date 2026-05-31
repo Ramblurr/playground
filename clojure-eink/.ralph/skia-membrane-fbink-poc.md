@@ -123,9 +123,9 @@ Do not wait for supervisor approval between ordinary numbered sections unless bl
 
 ### 4. Native gray8 context
 
-- [ ] Implement create/destroy/width/height/stride/clear/copy functions.
-- [ ] Fail clearly for invalid dimensions and undersized copy buffers.
-- [ ] Add host tests for context creation, clear-to-white, copy size, and repeated create/destroy.
+- [x] Implement create/destroy/width/height/stride/clear/copy functions.
+- [x] Fail clearly for invalid dimensions and undersized copy buffers.
+- [x] Add host tests for context creation, clear-to-white, copy size, and repeated create/destroy.
 
 ### 5. Skia primitive rendering
 
@@ -334,3 +334,32 @@ Test/evidence commands:
 - `EINK_SKIA_NATIVE_LIB=result-skia-native/lib/libclojure_eink_skia.so bb test` => `33 tests, 101 assertions, 0 failures`.
 
 Section 3 blockers: none. Next section: native gray8 context implementation.
+
+## Section 4 checkpoint notes
+
+Completed in Ralph iteration 4.
+
+Changed paths for this section:
+- `src/native/eink_skia_native.cpp` (native gray8 context ownership, create/destroy, geometry accessors, clear, copy, and clear error paths).
+- `test/clj/ol/membrane/skia_eink_backend_test.clj` (host FFM tests for context lifecycle, invalid dimensions, clear/copy, undersized copy, and repeated create/destroy).
+- `.ralph/skia-membrane-fbink-poc.md` (this evidence log).
+
+Implementation notes:
+- `eink_skia_context` now owns compact gray8 `pixels` and `previous_pixels` vectors, dimensions, stride, and a saved default-family string.
+- `eink_skia_create` validates positive dimensions and overflow before allocating; initial current and previous buffers are white (`0xFF`).
+- `eink_skia_destroy`, `eink_skia_width`, `eink_skia_height`, `eink_skia_stride`, `eink_skia_clear`, and `eink_skia_copy_gray8` now operate on the opaque context.
+- Invalid dimensions return `NULL` from create and set `eink_skia_last_error` with `invalid dimensions`.
+- `eink_skia_copy_gray8` returns `-EINVAL` for null context/null destination and undersized buffers; undersized copies set an error containing `undersized`.
+- Drawing, transform, text, and present functions remain `-ENOSYS` stubs for later sections.
+
+Test/evidence commands:
+- RED before implementation: `EINK_SKIA_NATIVE_LIB=result-skia-native/lib/libclojure_eink_skia.so bb test --focus ...native-context-*` => expected failures from `eink_skia_create: not implemented`/`-ENOSYS`.
+- `nix build .#clojure-eink-skia-bridge -o result-skia-native` => success after native context implementation.
+- `EINK_SKIA_NATIVE_LIB=result-skia-native/lib/libclojure_eink_skia.so bb test --focus ol.membrane.skia-eink-backend-test/native-context-create-destroy-test --focus ol.membrane.skia-eink-backend-test/native-context-clear-copy-test --focus ol.membrane.skia-eink-backend-test/native-context-invalid-dimensions-test --focus ol.membrane.skia-eink-backend-test/native-context-repeated-create-destroy-test` => `4 tests, 11 assertions, 0 failures`.
+- `nix build .#clojure-eink-skia-bridge-kobo -o result-kobo-skia-native` => success after native context implementation.
+- `cljfmt check src/clj/ol/membrane/skia_eink_backend.clj test/clj/ol/membrane/skia_eink_backend_test.clj` reported test formatting differences; `cljfmt fix test/clj/ol/membrane/skia_eink_backend_test.clj`, then `cljfmt check ...` => `All source files formatted correctly`.
+- `EINK_SKIA_NATIVE_LIB=result-skia-native/lib/libclojure_eink_skia.so bb test --focus ol.membrane.skia-eink-backend-test` => `8 tests, 18 assertions, 0 failures`.
+- `EINK_SKIA_NATIVE_LIB=result-skia-native/lib/libclojure_eink_skia.so bb test` => `37 tests, 112 assertions, 0 failures`.
+- `unset EINK_SKIA_NATIVE_LIB; bb test` => `37 tests, 103 assertions, 0 failures` (native-dependent tests skip when env is absent).
+
+Section 4 blockers: none. Next section: Skia primitive rendering.

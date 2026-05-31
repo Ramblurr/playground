@@ -1,12 +1,28 @@
 #include "eink_skia_native.h"
 
+#include <algorithm>
 #include <cerrno>
 #include <cstdarg>
+#include <cstdint>
 #include <cstdio>
+#include <cstring>
+#include <limits>
+#include <new>
+#include <string>
+#include <vector>
 
 namespace {
 
 thread_local char last_error[512] = "";
+
+struct eink_skia_context {
+    int width;
+    int height;
+    int stride;
+    std::vector<uint8_t> pixels;
+    std::vector<uint8_t> previous_pixels;
+    std::string default_family;
+};
 
 void set_error(const char *fmt, ...) {
     va_list ap;
@@ -15,9 +31,43 @@ void set_error(const char *fmt, ...) {
     va_end(ap);
 }
 
+void clear_error() {
+    last_error[0] = '\0';
+}
+
+int fail_with_code(int code, const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(last_error, sizeof(last_error), fmt, ap);
+    va_end(ap);
+    return -code;
+}
+
 int not_implemented(const char *function_name) {
-    set_error("%s: not implemented", function_name);
-    return -ENOSYS;
+    return fail_with_code(ENOSYS, "%s: not implemented", function_name);
+}
+
+bool checked_buffer_len(int width, int height, size_t *out_len) {
+    if (width <= 0 || height <= 0) {
+        return false;
+    }
+
+    size_t row_bytes = static_cast<size_t>(width);
+    size_t rows = static_cast<size_t>(height);
+    if (rows > std::numeric_limits<size_t>::max() / row_bytes) {
+        return false;
+    }
+
+    *out_len = row_bytes * rows;
+    return true;
+}
+
+eink_skia_context *as_context(void *ctx, const char *function_name) {
+    if (ctx == nullptr) {
+        set_error("%s: context is NULL", function_name);
+        return nullptr;
+    }
+    return static_cast<eink_skia_context *>(ctx);
 }
 
 } // namespace
@@ -30,38 +80,83 @@ void *eink_skia_create(int width,
                        int height,
                        const char *font_dir,
                        const char *default_family) {
-    (void)width;
-    (void)height;
     (void)font_dir;
-    (void)default_family;
-    not_implemented("eink_skia_create");
-    return nullptr;
+
+    size_t pixel_count = 0;
+    if (!checked_buffer_len(width, height, &pixel_count)) {
+        set_error("eink_skia_create: invalid dimensions width=%d height=%d", width, height);
+        return nullptr;
+    }
+
+    try {
+        auto *ctx = new eink_skia_context();
+        ctx->width = width;
+        ctx->height = height;
+        ctx->stride = width;
+        ctx->pixels.assign(pixel_count, 0xFF);
+        ctx->previous_pixels.assign(pixel_count, 0xFF);
+        ctx->default_family = default_family != nullptr ? default_family : "";
+        clear_error();
+        return ctx;
+    } catch (const std::bad_alloc &) {
+        set_error("eink_skia_create: allocation failed for width=%d height=%d", width, height);
+        return nullptr;
+    } catch (...) {
+        set_error("eink_skia_create: unexpected error");
+        return nullptr;
+    }
 }
 
 int eink_skia_destroy(void *ctx) {
-    (void)ctx;
-    return not_implemented("eink_skia_destroy");
+    eink_skia_context *context = as_context(ctx, "eink_skia_destroy");
+    if (context == nullptr) {
+        return -EINVAL;
+    }
+
+    delete context;
+    clear_error();
+    return 0;
 }
 
 int eink_skia_width(void *ctx) {
-    (void)ctx;
-    return not_implemented("eink_skia_width");
+    eink_skia_context *context = as_context(ctx, "eink_skia_width");
+    if (context == nullptr) {
+        return -EINVAL;
+    }
+
+    clear_error();
+    return context->width;
 }
 
 int eink_skia_height(void *ctx) {
-    (void)ctx;
-    return not_implemented("eink_skia_height");
+    eink_skia_context *context = as_context(ctx, "eink_skia_height");
+    if (context == nullptr) {
+        return -EINVAL;
+    }
+
+    clear_error();
+    return context->height;
 }
 
 int eink_skia_stride(void *ctx) {
-    (void)ctx;
-    return not_implemented("eink_skia_stride");
+    eink_skia_context *context = as_context(ctx, "eink_skia_stride");
+    if (context == nullptr) {
+        return -EINVAL;
+    }
+
+    clear_error();
+    return context->stride;
 }
 
 int eink_skia_clear(void *ctx, unsigned char gray) {
-    (void)ctx;
-    (void)gray;
-    return not_implemented("eink_skia_clear");
+    eink_skia_context *context = as_context(ctx, "eink_skia_clear");
+    if (context == nullptr) {
+        return -EINVAL;
+    }
+
+    std::fill(context->pixels.begin(), context->pixels.end(), static_cast<uint8_t>(gray));
+    clear_error();
+    return 0;
 }
 
 int eink_skia_save(void *ctx) {
@@ -198,10 +293,25 @@ int eink_skia_draw_text_box(void *ctx,
 }
 
 int eink_skia_copy_gray8(void *ctx, unsigned char *dst, size_t dst_len) {
-    (void)ctx;
-    (void)dst;
-    (void)dst_len;
-    return not_implemented("eink_skia_copy_gray8");
+    eink_skia_context *context = as_context(ctx, "eink_skia_copy_gray8");
+    if (context == nullptr) {
+        return -EINVAL;
+    }
+    if (dst == nullptr) {
+        return fail_with_code(EINVAL, "eink_skia_copy_gray8: dst is NULL");
+    }
+
+    size_t required_len = context->pixels.size();
+    if (dst_len < required_len) {
+        return fail_with_code(EINVAL,
+                              "eink_skia_copy_gray8: undersized dst_len=%zu required=%zu",
+                              dst_len,
+                              required_len);
+    }
+
+    std::memcpy(dst, context->pixels.data(), required_len);
+    clear_error();
+    return 0;
 }
 
 int eink_skia_present(void *ctx,
