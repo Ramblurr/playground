@@ -5,6 +5,27 @@
    [membrane.ui :as ui]
    [ol.project :as project]))
 
+(defn- gray-at
+  [gray x y]
+  (bit-and 0xFF (aget ^bytes (:data gray) (+ x (* y (:stride gray))))))
+
+(defn- all-nodes
+  [elem]
+  (tree-seq #(seq (ui/children %)) ui/children elem))
+
+(defn- label-translate
+  [elem text]
+  (some (fn [node]
+          (when (and (instance? membrane.ui.Translate node)
+                     (instance? membrane.ui.Label (:drawable node))
+                     (= text (:text (:drawable node))))
+            node))
+        (all-nodes elem)))
+
+(defn- near?
+  [expected actual]
+  (< (abs (- expected actual)) 0.5))
+
 (deftest draw-basic-ui-to-gray-image-test
   (testing "renders Membrane shapes and text to a byte-backed grayscale image"
     (let [elem  [(ui/with-color [0 0 0]
@@ -18,9 +39,15 @@
       (is (some #(< (bit-and 0xFF %) 250) (:data gray))))))
 
 (deftest demo-ui-test
-  (testing "provides a basic button-like Membrane demo"
-    (let [elem  (fbink/demo-ui {:width 320 :height 240})
-          image (fbink/render-to-image! elem {:width 320 :height 240})
-          gray  (project/image->gray8 image)]
-      (is (= [320 240] (ui/bounds elem)))
+  (testing "provides a normal-polarity button-like Membrane demo"
+    (let [elem            (fbink/demo-ui {:width 640 :height 480})
+          image           (fbink/render-to-image! elem {:width 640 :height 480})
+          gray            (project/image->gray8 image)
+          click-translate (label-translate elem "Click Me")
+          [label-w label-h] (fbink/text-bounds (ui/font nil 28) "Click Me")]
+      (is (= [640 480] (ui/bounds elem)))
+      (is (some? click-translate))
+      (is (near? (/ (- 360 label-w) 2.0) (:x click-translate)))
+      (is (near? (/ (- 82 label-h) 2.0) (:y click-translate)))
+      (is (> (gray-at gray 10 10) 240) "background should be white")
       (is (some #(< (bit-and 0xFF %) 250) (:data gray))))))

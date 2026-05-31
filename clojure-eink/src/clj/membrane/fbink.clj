@@ -287,25 +287,36 @@
     (project/present-gray8! native gray opts)
     image))
 
+(defn- centered-label
+  [text font width height]
+  (let [[label-width label-height] (text-bounds font text)]
+    (ui/translate (/ (- width label-width) 2.0)
+                  (/ (- height label-height) 2.0)
+                  (ui/label text font))))
+
 (defn demo-ui
   [{:keys [width height]
     :or   {width 800 height 600}}]
-  (let [title-font   (ui/font nil 42)
-        body-font    (ui/font nil 30)
-        button-font  (ui/font nil 28)
-        button-width 360
+  (let [title-font    (ui/font nil 42)
+        body-font     (ui/font nil 30)
+        button-font   (ui/font nil 28)
+        button-width  360
         button-height 82
-        content      [(ui/with-color [0 0 0]
-                       (ui/rectangle width height))
-                      (ui/with-color [1 1 1]
-                        (ui/translate 48 72
-                                      (ui/label "Membrane on FBInk" title-font))
-                        (ui/translate 48 136
-                                      (ui/label "Java2D grayscale -> FBInk" body-font)))
-                      (ui/translate 48 210
-                                    [(ui/with-color [1 1 1]
-                                       (ui/rounded-rectangle button-width button-height 8))
-                                     (ui/with-color [0 0 0]
-                                       (ui/translate 26 50
-                                                     (ui/label "Dictionary" button-font)))])]]
+        button-radius 8
+        content       [(ui/with-color [1 1 1]
+                        (ui/rectangle width height))
+                       (ui/with-color [0 0 0]
+                         (ui/translate 48 72
+                                       (ui/label "Membrane on FBInk" title-font))
+                         (ui/translate 48 136
+                                       (ui/label "Java2D grayscale -> FBInk" body-font)))
+                       (ui/translate 48 210
+                                     [(ui/with-color [0.94 0.94 0.94]
+                                        (ui/rounded-rectangle button-width button-height button-radius))
+                                      (ui/with-color [0 0 0]
+                                        (ui/with-stroke-width
+                                          3
+                                          (ui/with-style :membrane.ui/style-stroke
+                                            (ui/rounded-rectangle button-width button-height button-radius)))
+                                        (centered-label "Click Me" button-font button-width button-height))])]]
     (ui/fixed-bounds [width height] content)))
