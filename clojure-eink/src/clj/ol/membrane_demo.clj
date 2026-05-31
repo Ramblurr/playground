@@ -1,6 +1,6 @@
 (ns ol.membrane-demo
   (:require
-   [membrane.fbink :as fbink]
+   [ol.membrane :as membrane]
    [ol.project :as project]))
 
 (defn -main
@@ -35,13 +35,13 @@
                                (project/log-time! (str "queried screen height: " h))
                                h))
                            600)
-                elem   (fbink/demo-ui {:width width :height height})
+                elem   (membrane/demo-ui {:width width :height height})
                 image  (do
                          (project/log-time! (str "starting Membrane render " width "x" height))
-                         (let [image (fbink/render-to-image! elem {:width       width
-                                                                   :height      height
-                                                                   :image-cache (atom nil)
-                                                                   :font-cache  (atom {})})]
+                         (let [image (membrane/render-to-image! elem {:width       width
+                                                                       :height      height
+                                                                       :image-cache (atom nil)
+                                                                       :font-cache  (atom {})})]
                            (project/log-time! "finished Membrane render")
                            image))]
             (when-let [png (:png opts)]

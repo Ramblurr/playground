@@ -1,8 +1,8 @@
-(ns membrane.fbink-test
+(ns ol.membrane-test
   (:require
    [clojure.test :refer [deftest is testing]]
-   [membrane.fbink :as fbink]
    [membrane.ui :as ui]
+   [ol.membrane :as membrane]
    [ol.project :as project]))
 
 (defn- gray-at
@@ -32,7 +32,7 @@
                    (ui/rectangle 80 40))
                  (ui/translate 12 28
                                (ui/label "Hi" (ui/font nil 24)))]
-          image (fbink/render-to-image! elem {:width 160 :height 96})
+          image (membrane/render-to-image! elem {:width 160 :height 96})
           gray  (project/image->gray8 image)]
       (is (= 160 (:width gray)))
       (is (= 96 (:height gray)))
@@ -40,11 +40,11 @@
 
 (deftest demo-ui-test
   (testing "provides a normal-polarity button-like Membrane demo"
-    (let [elem            (fbink/demo-ui {:width 640 :height 480})
-          image           (fbink/render-to-image! elem {:width 640 :height 480})
+    (let [elem            (membrane/demo-ui {:width 640 :height 480})
+          image           (membrane/render-to-image! elem {:width 640 :height 480})
           gray            (project/image->gray8 image)
           click-translate (label-translate elem "Click Me")
-          [label-w label-h] (fbink/text-bounds (ui/font nil 28) "Click Me")]
+          [label-w label-h] (membrane/text-bounds (ui/font nil 28) "Click Me")]
       (is (= [640 480] (ui/bounds elem)))
       (is (some? click-translate))
       (is (near? (/ (- 360 label-w) 2.0) (:x click-translate)))

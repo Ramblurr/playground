@@ -1,4 +1,4 @@
-(ns membrane.fbink
+(ns ol.membrane
   (:require
    [clojure.string :as str]
    [membrane.ui :as ui]

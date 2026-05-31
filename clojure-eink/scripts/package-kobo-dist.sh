@@ -7,6 +7,7 @@ JAR_NAME="clojure-eink-demo.jar"
 
 cd "$ROOT"
 
+rm -rf "$ROOT/target/classes"
 clojure -T:build jar
 
 mkdir -p "$DIST/lib" "$DIST/src"
