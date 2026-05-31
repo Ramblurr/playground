@@ -180,6 +180,30 @@ Rules:
 - keep a copied current gray8 snapshot after present;
 - if many partial presents happened, later force a full refresh to reduce ghosting.
 
+## Current implementation assessment
+
+The current damage implementation is a good v1/proof implementation, not a finished damage system. It is correct in the most important architectural way: it diffs the final `gray8` bytes after `project/image->gray8`, keeps an independent previous snapshot, detects unchanged frames, and can crop/present one bounding dirty rectangle.
+
+Strengths:
+
+- compares the final device-bound bytes, not the Membrane tree;
+- avoids the mutable backing-store bug by copying previous bytes;
+- naturally handles both old pixels disappearing and new pixels appearing;
+- keeps the algorithm simple enough to test and reason about;
+- is proven on Kobo for the basic unchanged-frame case: first render full, second identical render skip.
+
+Known gaps before calling this complete:
+
+- print or capture timing breakdowns for diff, crop, and present on Kobo;
+- benchmark the byte-by-byte Clojure diff cost on full-screen buffers;
+- make `:force-full?` skip diff and present full immediately;
+- add full-refresh cadence and ghosting policy;
+- add tile-based damage for scattered changes;
+- tighten reload behavior for real development loops;
+- add tests for threshold/full-present policy and stride edge cases.
+
+Next decision point: benchmark diff cost on Kobo. If full-screen Clojure byte scanning is cheap enough, keep it. If it is visible, optimize the loop or move diff/crop lower-level.
+
 ## CLI / run loop behavior
 
 A demo runner can live in `ol.membrane-demo` and call backend functions. It should support commands similar to `ol.loop`:
@@ -240,3 +264,4 @@ bash screenshot.sh
 - 2026-05-31 14:12 CEST — Started implementation with TDD for pure gray8 damage helpers in `ol.membrane.eink-backend`. Added RED tests for copied snapshots, unchanged detection, bounding dirty rectangle, and compact crop buffers. Implemented `snapshot-gray8`, `diff-gray8`, and `crop-gray8`; verified GREEN with `bb test --focus ol.membrane.eink-backend-test`: `4 tests, 10 assertions, 0 failures`.
 - 2026-05-31 14:17 CEST — Added damage-aware present and first runner APIs. TDD added tests for full first present, unchanged skip, partial crop present, context image/font cache reuse, and `render-view!` container-info behavior. Implemented `open-context!`, `close-context!`, `render-frame!`, `present-gray8-with-damage!`, `present-frame!`, `render-view!`, and a stdin `run-loop!` with `render`, `reload`, `help`, and `quit`. Refactored `ol.membrane-demo` one-shot path to use backend context/render functions and added `--loop` mode. Added `run-membrane-loop.sh` packaging. Verified `bb test`: `18 tests, 74 assertions, 0 failures`; local PNG smoke; local no-present loop smoke; and packaged jar containing `ol/membrane/eink_backend.clj`.
 - 2026-05-31 14:21 CEST — Deployed packaged task 003 state to Kobo with safe rsync flags. Ran `printf 'render\nrender\nquit\n' | ./run-membrane-loop.sh --no-wait --no-flash` on device. The long-lived loop started, first render presented a full dirty rect `{:x 0, :y 0, :width 1264, :height 1680}`, and the second identical render reported `mode skip dirty none`, proving previous gray8 snapshot comparison skipped native present for unchanged output.
+- 2026-05-31 14:25 CEST — Added implementation assessment notes after review. The current damage tracker is documented as a correct v1/proof: it diffs final gray8 bytes, copies previous state, handles unchanged frames and bounding-rect crops, and is proven on Kobo for skip. The doc now also records the known gaps: diff/crop timing, full-screen diff benchmark, `:force-full?` short-circuit, ghosting/full-refresh policy, tile damage, reload tightening, and extra policy/stride tests.
