@@ -412,6 +412,36 @@
             (when (not= MemorySegment/NULL ctx)
               (is (= 0 (destroy-ctx native ctx))))))))))
 
+(deftest native-present-rejects-invalid-geometry-before-fbink-test
+  (with-test-native-and-fonts [native _font-dir]
+    (testing "present validates the native Skia context geometry before touching FBInk"
+      (let [ctx (create-ctx native 16 8)]
+        (try
+          (is (= -22
+                 (backend/invoke-native (:present native)
+                                        ctx
+                                        (int 0)
+                                        (int 0)
+                                        (int 0)
+                                        (int 8)
+                                        (int 2)
+                                        (int 0)
+                                        (int 0))))
+          (is (re-find #"invalid present geometry" (backend/native-last-error native)))
+          (is (= -22
+                 (backend/invoke-native (:present native)
+                                        ctx
+                                        (int 0)
+                                        (int 0)
+                                        (int 8)
+                                        (int 8)
+                                        (int 2)
+                                        (int 0)
+                                        (int 0))))
+          (is (re-find #"full-screen" (backend/native-last-error native)))
+          (finally
+            (is (= 0 (destroy-ctx native ctx)))))))))
+
 (def required-high-level-vars
   '[open-context!
     close-context!

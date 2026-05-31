@@ -7,11 +7,40 @@ JAR_NAME="clojure-eink-demo.jar"
 
 cd "$ROOT"
 
+copy_nix_runtime_libs() {
+  local output=$1
+
+  if ! command -v nix-store >/dev/null 2>&1; then
+    echo "Warning: nix-store not found; cannot copy runtime closure for $output" >&2
+    return 0
+  fi
+
+  if [[ ! -e "$output" ]]; then
+    return 0
+  fi
+
+  while IFS= read -r store_path; do
+    case "$store_path" in
+      *-glibc-*)
+        continue
+        ;;
+    esac
+
+    while IFS= read -r lib_path; do
+      rm -f "$DIST/lib/$(basename -- "$lib_path")"
+      cp -L "$lib_path" "$DIST/lib/"
+    done < <(find "$store_path" \( -type f -o -type l \) -name 'lib*.so*' -print 2>/dev/null)
+  done < <(nix-store -qR "$output")
+}
+
 rm -rf "$ROOT/target/classes"
 clojure -T:build jar
 
 mkdir -p "$DIST/lib" "$DIST/lib/java" "$DIST/src"
 chmod -R u+w "$DIST" 2>/dev/null || true
+if [[ -d "$ROOT/result-kobo-native/lib" || -d "$ROOT/result-kobo-skia-native/lib" ]]; then
+  find "$DIST/lib" -maxdepth 1 \( -type f -o -type l \) -name 'lib*.so*' -delete
+fi
 
 jar_path=$(find "$ROOT/target" -maxdepth 1 -type f -name '*.jar' -print | sort | head -n 1)
 if [[ -z "${jar_path:-}" ]]; then
@@ -22,7 +51,8 @@ cp "$jar_path" "$DIST/$JAR_NAME"
 
 if [[ -d "$ROOT/result-kobo-native/lib" ]]; then
   cp -P "$ROOT"/result-kobo-native/lib/libclojure_eink.so "$DIST/lib/"
-  cp -P "$ROOT"/result-kobo-native/lib/libfbink.so* "$DIST/lib/"
+  cp -L "$ROOT"/result-kobo-native/lib/libfbink.so* "$DIST/lib/"
+  copy_nix_runtime_libs "$ROOT/result-kobo-native"
 elif [[ ! -f "$DIST/lib/libclojure_eink.so" ]]; then
   cat >&2 <<'EOF'
 Missing target/dist/lib/libclojure_eink.so.
@@ -38,6 +68,7 @@ fi
 if [[ -d "$ROOT/result-kobo-skia-native/lib" ]]; then
   cp -P "$ROOT"/result-kobo-skia-native/lib/libclojure_eink_skia.so "$DIST/lib/"
   cp -P "$ROOT"/result-kobo-skia-native/lib/libsk*.so* "$DIST/lib/"
+  copy_nix_runtime_libs "$ROOT/result-kobo-skia-native"
 elif [[ ! -f "$DIST/lib/libclojure_eink_skia.so" ]]; then
   cat >&2 <<'EOF'
 Missing target/dist/lib/libclojure_eink_skia.so.

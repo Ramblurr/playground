@@ -25,30 +25,46 @@
   (testing "generated Kobo dist includes the separate Skia demo runtime pieces"
     (let [script           (slurp "scripts/package-kobo-dist.sh")
           skia-demo-script (generated-script script "run-membrane-skia-demo.sh")]
-      (is (= {:copies-skia-bridge?       true
-              :copies-skia-runtime-libs? true
-              :copies-fonts?             true
-              :writes-skia-script?       true
-              :exports-skia-native-lib?  true
-              :exports-font-dir?         true
-              :sets-ld-library-path?     true
-              :runs-skia-demo-main?      true
-              :chmods-skia-script?       true}
-             {:copies-skia-bridge?       (and (str/includes? script "result-kobo-skia-native/lib")
-                                              (str/includes? script "libclojure_eink_skia.so"))
-              :copies-skia-runtime-libs? (str/includes? script "libsk*.so*")
-              :copies-fonts?             (and (str/includes? script "resources/fonts")
-                                              (str/includes? script "$DIST/fonts"))
-              :writes-skia-script?       (some? skia-demo-script)
-              :exports-skia-native-lib?  (str/includes? (or skia-demo-script "")
-                                                        "export EINK_SKIA_NATIVE_LIB=\"$APP_DIR/lib/libclojure_eink_skia.so\"")
-              :exports-font-dir?         (str/includes? (or skia-demo-script "")
-                                                        "export EINK_FONT_DIR=\"$APP_DIR/fonts\"")
-              :sets-ld-library-path?     (str/includes? (or skia-demo-script "")
-                                                        "export LD_LIBRARY_PATH=\"$APP_DIR/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}\"")
-              :runs-skia-demo-main?      (str/includes? (or skia-demo-script "")
-                                                        "clojure.main -m ol.membrane-skia-demo --present \"$@\"")
-              :chmods-skia-script?       (str/includes? script "run-membrane-skia-demo.sh")})))))
+      (is (= {:copies-skia-bridge?            true
+              :copies-skia-runtime-libs?      true
+              :copies-fbink-runtime-libs?     true
+              :dereferences-fbink-symlinks?   true
+              :copies-nix-runtime-closure?    true
+              :dereferences-closure-symlinks? true
+              :overwrites-duplicate-libs?     true
+              :excludes-glibc-closure-libs?   true
+              :cleans-stale-native-libs?      true
+              :copies-fonts?                  true
+              :writes-skia-script?            true
+              :exports-skia-native-lib?       true
+              :exports-font-dir?              true
+              :sets-ld-library-path?          true
+              :runs-skia-demo-main?           true
+              :chmods-skia-script?            true}
+             {:copies-skia-bridge?            (and (str/includes? script "result-kobo-skia-native/lib")
+                                                   (str/includes? script "libclojure_eink_skia.so"))
+              :copies-skia-runtime-libs?      (str/includes? script "libsk*.so*")
+              :copies-fbink-runtime-libs?     (str/includes? script "libfbink.so*")
+              :dereferences-fbink-symlinks?   (str/includes? script "cp -L \"$ROOT\"/result-kobo-native/lib/libfbink.so*")
+              :copies-nix-runtime-closure?    (and (str/includes? script "copy_nix_runtime_libs")
+                                                   (str/includes? script "nix-store -qR")
+                                                   (str/includes? script "result-kobo-skia-native"))
+              :dereferences-closure-symlinks? (str/includes? script "cp -L \"$lib_path\"")
+              :overwrites-duplicate-libs?     (str/includes? script "rm -f \"$DIST/lib/$(basename -- \"$lib_path\")\"")
+              :excludes-glibc-closure-libs?   (str/includes? script "*-glibc-*)")
+              :cleans-stale-native-libs?      (str/includes? script "-name 'lib*.so*' -delete")
+              :copies-fonts?                  (and (str/includes? script "resources/fonts")
+                                                   (str/includes? script "$DIST/fonts"))
+              :writes-skia-script?            (some? skia-demo-script)
+              :exports-skia-native-lib?       (str/includes? (or skia-demo-script "")
+                                                             "export EINK_SKIA_NATIVE_LIB=\"$APP_DIR/lib/libclojure_eink_skia.so\"")
+              :exports-font-dir?              (str/includes? (or skia-demo-script "")
+                                                             "export EINK_FONT_DIR=\"$APP_DIR/fonts\"")
+              :sets-ld-library-path?          (str/includes? (or skia-demo-script "")
+                                                             "export LD_LIBRARY_PATH=\"$APP_DIR/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}\"")
+              :runs-skia-demo-main?           (str/includes? (or skia-demo-script "")
+                                                             "clojure.main -m ol.membrane-skia-demo --present \"$@\"")
+              :chmods-skia-script?            (str/includes? script "run-membrane-skia-demo.sh")})))))
 
 (deftest java2d-membrane-script-stays-on-old-native-env-test
   (testing "existing Java2D Membrane script does not depend on Skia env vars"

@@ -35,6 +35,14 @@
   [node]
   (= "ol.membrane.skia_eink_backend.Paragraph" (.getName (class node))))
 
+(defn- paragraph-texts
+  [elem]
+  (->> (all-nodes elem)
+       (keep (fn [node]
+               (when (paragraph-node? node)
+                 (:text node))))
+       set))
+
 (defn- dark-byte?
   [b]
   (< (bit-and 0xFF b) 250))
@@ -46,15 +54,18 @@
       (when demo-ui-var
         (let [elem (@demo-ui-var {:width 600 :height 420})]
           (is (= {:bounds          [600 420]
-                  :title?          true
-                  :rounded-action? true
+                  :skia-title?     true
+                  :skia-action?    true
                   :unicode-smoke?  true
-                  :paragraph?      true}
+                  :skia-paragraph? true
+                  :paragraph-node? true}
                  {:bounds          (ui/bounds elem)
-                  :title?          (contains? (label-texts elem) "Skia Membrane FBInk")
-                  :rounded-action? (contains? (label-texts elem) "Skia render path")
-                  :unicode-smoke?  (contains? (label-texts elem) "Unicode smoke: Café — Ω")
-                  :paragraph?      (boolean (some paragraph-node? (all-nodes elem)))})))))))
+                  :skia-title?     (contains? (label-texts elem) "SKIA renderer on FBInk")
+                  :skia-action?    (contains? (label-texts elem) "Rendered by Skia")
+                  :unicode-smoke?  (contains? (label-texts elem) "Skia Unicode smoke: Café — Ω")
+                  :skia-paragraph? (boolean (some #(re-find #"rendered by Skia" %)
+                                                  (paragraph-texts elem)))
+                  :paragraph-node? (boolean (some paragraph-node? (all-nodes elem)))})))))))
 
 (deftest skia-demo-renders-through-skia-backend-test
   (testing "Skia demo renders through the Skia backend into non-white gray8 output"

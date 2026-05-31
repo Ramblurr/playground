@@ -117,6 +117,7 @@
           pkgs.callPackage ./nix/pkgs/clojure-eink-skia-bridge/package.nix {
             src = ./.;
             skia = self.packages.${pkgs.system}.skia-native;
+            fbink = self.packages.${pkgs.system}.fbink;
           };
         clojure-eink-skia-bridge-kobo =
           pkgs:
@@ -124,6 +125,7 @@
             {
               src = ./.;
               skia = self.packages.${pkgs.system}.skia;
+              fbink = self.packages.${pkgs.system}.fbink-kobo;
             };
         native = pkgs: self.packages.${pkgs.system}.clojure-eink-fbink-bridge;
         native-kobo = pkgs: self.packages.${pkgs.system}.clojure-eink-fbink-bridge-kobo;

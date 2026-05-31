@@ -158,13 +158,13 @@ Do not wait for supervisor approval between ordinary numbered sections unless bl
 
 ### 9. FBInk present and Kobo smoke
 
-- [ ] Implement `eink_skia_present` inside `libclojure_eink_skia.so`, linked directly to FBInk.
-- [ ] Keep first PoC full-screen present acceptable; avoid overbuilding damage before visible proof.
-- [ ] Build/package/deploy the dist with safe `rsync` flags.
-- [ ] Use `tmuxb capture` before all Kobo `tmuxb send` commands.
-- [ ] Run `./run-membrane-skia-demo.sh --no-wait --no-flash` on Kobo.
-- [ ] Capture screenshot evidence only after a meaningful visual change.
-- [ ] Regression-check `./run-membrane-demo.sh --no-wait --no-flash` for Java2D path.
+- [x] Implement `eink_skia_present` inside `libclojure_eink_skia.so`, linked directly to FBInk.
+- [x] Keep first PoC full-screen present acceptable; avoid overbuilding damage before visible proof.
+- [x] Build/package/deploy the dist with safe `rsync` flags.
+- [x] Use `tmuxb capture` before all Kobo `tmuxb send` commands.
+- [x] Run `./run-membrane-skia-demo.sh --no-wait --no-flash` on Kobo.
+- [x] Capture screenshot evidence only after a meaningful visual change.
+- [x] Regression-check `./run-membrane-demo.sh --no-wait --no-flash` for Java2D path.
 
 ### 10. Documentation and final verification
 
@@ -490,3 +490,60 @@ Test/evidence commands:
 - `EINK_SKIA_NATIVE_LIB=result-skia-native/lib/libclojure_eink_skia.so EINK_FONT_DIR=resources/fonts clojure -M:kaocha` => `50 tests, 175 assertions, 0 failures`.
 
 Section 8 blockers: none. Next section: native FBInk present and Kobo smoke. Stop for safety/rollback review before deployment or Kobo-device-changing steps.
+
+## Section 9 checkpoint notes
+
+Completed as a normal interactive Pi task after the Ralph loop was intentionally stopped by the supervisor; no `ralph_done` call was used.
+Changed paths so far for this section:
+- `src/native/eink_skia_native.cpp` (FBInk lifecycle in Skia context and native full-context `eink_skia_present`).
+- `nix/pkgs/clojure-eink-skia-bridge/package.nix` (Skia bridge now accepts/links/copies FBInk in addition to Skia).
+- `flake.nix` (passes host/Kobo FBInk packages to the Skia bridge derivation).
+- `test/clj/ol/membrane/skia_eink_backend_test.clj` (native present validation test proving invalid geometry is rejected before touching FBInk).
+- `scripts/package-kobo-dist.sh` (materializes FBInk soname files as regular files for the project-standard `rsync -rtv` deploy flags).
+- `test/clj/ol/package_kobo_dist_test.clj` (package-script assertion for FBInk runtime library handling).
+- `prompts/004-skia-membrane-fbink-poc_kobo-smoke-ocp.md` and `prompts/008-skia-kobo-smoke.md` (ignored OCP safety/rollback ledgers for deployment and Kobo smoke; `008` is the active supervisor-requested ledger).
+- `.ralph/skia-membrane-fbink-poc.md` (this progress log).
+
+Implementation notes:
+- `eink_skia_present` now validates the opaque context and full-context dimensions, initializes FBInk lazily with a per-Skia-context fd/config/state, presents `context->pixels` through `fbink_print_raw_data`, optionally waits with `fbink_wait_for_complete`, and snapshots pixels into `previous_pixels` after a successful present.
+- The first native Skia present intentionally accepts only full-context `width`/`height`; partial damage/cropping remains out of scope until after visible proof.
+- `eink_skia_destroy` closes the Skia context's FBInk fd if it was opened.
+- The Skia bridge derivation links `-lfbink`, installs `libfbink.so*` beside the Skia bridge output, and the Kobo artifact has a `NEEDED` entry for `libfbink.so.1`.
+- Packaging initially preserved FBInk symlinks, but the mandated `rsync -rtv` dry-run skipped those symlinks. The package script now removes stale `target/dist/lib/libfbink.so*` and copies them with `cp -L`, producing regular files for `libfbink.so`, `libfbink.so.1`, and `libfbink.so.1.0.0`.
+
+Safety/rollback ledger:
+- Created/updated ignored OCP ledger `prompts/004-skia-membrane-fbink-poc_kobo-smoke-ocp.md` during earlier Section 9 work.
+- Read and updated the active supervisor-requested ledger `prompts/008-skia-kobo-smoke.md` in iteration 12.
+- Recorded scope, exact deployment/smoke commands, rollback plan, local preflight evidence, and the adjusted rsync `--exclude 'src/clj/ol/input/***'` scope.
+- No target mutation has been executed.
+
+Current Section 9 status after main rebase and human GO:
+- Human reported the Kobo input PoC is now committed on `main` and instructed: rebase the Skia branch against `main`, then GO for deploy.
+- Supervisor rebased branch `skia-membrane-fbink-poc` onto `main` commit `8811e01` (`Complete Kobo input POC`) and restored the uncommitted Section 9 changes.
+- Current pre-Section-9-commit HEAD after rebase is `3ff28e7` (`Package Skia Membrane demo`).
+- Input files now exist in this worktree from `main`: `src/clj/ol/input/evdev.clj`, `src/clj/ol/input/kobo.clj`, and `src/clj/ol/input/runtime.clj`.
+- The previous `--exclude 'src/clj/ol/input/***'` deployment plan is obsolete. Use standard project rsync flags with **no input exclude**.
+- Proceed through Section 9 deployment/smoke using the active OCP ledger `prompts/008-skia-kobo-smoke.md`. No additional go/no-go is needed for the standard no-exclude plan unless the fresh rsync dry-run still shows unexpected deletes.
+
+Section 9 next steps:
+1. Update `prompts/008-skia-kobo-smoke.md` to record the human GO, the rebase onto `main`, and the standard no-exclude rsync plan.
+2. Rerun local build/package verification after rebase as needed.
+3. Run standard `rsync -rtvn --delete --no-owner --no-group --no-perms target/dist/ root@kobo-lan:/mnt/onboard/clojure-eink-demo/` with no exclude. If it plans to delete `src/clj/ol/input/*`, STOP and send `BLOCKED section 9`.
+4. If the dry-run is clean, run remote baseline + local backup, then live rsync deploy with the same standard flags.
+5. Use `tmuxb capture` before every Kobo `tmuxb send`. Run the Skia smoke, capture screenshot only after meaningful visual change, then run the Java2D regression smoke.
+6. Record command evidence in the OCP ledger and this Ralph document.
+7. Stage and commit Section 9 repo changes only; do not commit ignored OCP ledger files unless explicitly asked.
+8. Send `DONE section 9` or `BLOCKED section 9` to `cljeink-skia-supervisor` with `link_send` and `triggerTurn:true`.
+
+Section 9 final completion evidence:
+- Additional changed paths for final Section 9 work: `src/clj/ol/membrane_skia_demo.clj` (clear SKIA-specific visible copy), `test/clj/ol/membrane_skia_demo_test.clj` (asserts SKIA-specific demo text), `scripts/package-kobo-dist.sh` (copies non-glibc Nix runtime closure libraries as regular files), and `test/clj/ol/package_kobo_dist_test.clj` (package-script assertions for closure copying/deduplication).
+- Root cause found during Kobo smoke: `SymbolLookup/libraryLookup` could not load `libclojure_eink_skia.so` because the dist lacked transitive Skia text-shaping runtime libraries (`libharfbuzz.so.0` first, plus ICU/freetype/png/zlib/libstdc++/libgcc dependencies). The package script now copies non-glibc `nix-store -qR` closure libraries into `target/dist/lib` with `cp -L` and removes duplicate basename files before copying.
+- Human requested clearer Skia visual copy after seeing the Java2D `Membrane on FBInk` screen. The Skia demo now renders title `SKIA renderer on FBInk`, body text explicitly saying it is on the SKIA path, and button `Rendered by Skia`.
+- Safety/rollback ledger: `prompts/008-skia-kobo-smoke.md` (ignored) records GO/no-exclude deployment scope, backup `target/kobo-backups/clojure-eink-demo-20260531T165156Z`, dry-runs, live deploys, smoke commands, screenshots, and rollback plan.
+- Deploy evidence: standard no-exclude `rsync -rtv --delete --no-owner --no-group --no-perms target/dist/ root@kobo-lan:/mnt/onboard/clojure-eink-demo/` succeeded. Initial deploy evidence in `target/rsync-skia-section9-deploy.txt`; closure-complete redeploy in `target/rsync-skia-section9-closure-deploy.txt`; final text-update deploy in `target/rsync-skia-section9-text-update-deploy.txt`.
+- Kobo Skia smoke evidence: after closure-complete deploy, `./run-membrane-skia-demo.sh --no-wait --no-flash` printed `starting Skia Membrane render 800x600`, `finished Skia Membrane render`, and `presented Skia Membrane demo 800 x 600 via /mnt/onboard/clojure-eink-demo/lib/libclojure_eink_skia.so`. After the copy update, the same command succeeded again.
+- Screenshot evidence: `screenshots/kobo-screen-20260531-191453.png` showed the first Skia screen; `screenshots/kobo-screen-20260531-192727.png` shows the final clear SKIA-specific screen with title `SKIA renderer on FBInk` and button `Rendered by Skia`.
+- Java2D regression evidence: `./run-membrane-demo.sh --no-wait --no-flash` printed `starting Membrane render 1264x1680`, `finished Membrane render`, and `presented Membrane demo 1264 x 1680 via /mnt/onboard/clojure-eink-demo/lib/libclojure_eink.so mode full` both before and after the final text-update deploy.
+- Required rebuild/package evidence after package-used changes: `nix build .#clojure-eink-fbink-bridge-kobo -o result-kobo-native`, `nix build .#clojure-eink-skia-bridge-kobo -o result-kobo-skia-native`, `nix build .#clojure-eink-skia-bridge -o result-skia-native`, and `scripts/package-kobo-dist.sh` all succeeded after the Skia copy/package-script changes.
+- Local verification evidence: `cljfmt check src/clj/ol/membrane/skia_eink_backend.clj src/clj/ol/membrane_skia_demo.clj test/clj/ol/membrane/skia_eink_backend_test.clj test/clj/ol/membrane_skia_demo_test.clj test/clj/ol/package_kobo_dist_test.clj` => `All source files formatted correctly`; focused Skia/package tests => `23 tests, 87 assertions, 0 failures`; `EINK_SKIA_NATIVE_LIB=result-skia-native/lib/libclojure_eink_skia.so EINK_FONT_DIR=resources/fonts bb test` => `73 tests, 214 assertions, 0 failures`; `unset EINK_SKIA_NATIVE_LIB EINK_FONT_DIR; bb test` => `73 tests, 152 assertions, 0 failures`.
+- Section 9 blockers: none remaining. Next section: documentation/final verification.

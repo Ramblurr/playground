@@ -5,10 +5,10 @@
    [ol.project :as project]))
 
 (def paragraph-text
-  "SkParagraph is shaping and wrapping this e-reader paragraph through Skia into a native gray8 raster buffer before FBInk presents it.")
+  "This screen is rendered by Skia + SkParagraph into a native gray8 buffer, then presented through FBInk. If you see this text, you are on the SKIA path, not Java2D.")
 
 (def unicode-smoke-text
-  "Unicode smoke: Café — Ω")
+  "Skia Unicode smoke: Café — Ω")
 
 (defn- bounded
   [lo hi value]
@@ -59,7 +59,7 @@
         (ui/rectangle width height))
       (ui/with-color [0 0 0]
         (ui/translate margin title-y
-                      (ui/label "Skia Membrane FBInk" title-font))
+                      (ui/label "SKIA renderer on FBInk" title-font))
         (ui/translate margin paragraph-y
                       (backend/paragraph paragraph-text body-font paragraph-width))
         (ui/translate margin smoke-y
@@ -73,7 +73,7 @@
                          (ui/with-style :membrane.ui/style-stroke
                            (ui/rounded-rectangle button-width button-height 8)))
                        (centered-label context
-                                       "Skia render path"
+                                       "Rendered by Skia"
                                        button-font
                                        button-width
                                        button-height))])])))

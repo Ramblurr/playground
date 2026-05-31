@@ -5,6 +5,7 @@
 #include <cerrno>
 #include <cmath>
 #include <cstdarg>
+#include <cstdlib>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -36,6 +37,7 @@
 #include "modules/skparagraph/include/TextStyle.h"
 #include "modules/skunicode/include/SkUnicode_icu.h"
 #include "ports/SkFontMgr_directory.h"
+#include "fbink.h"
 
 namespace {
 namespace textlayout = skia::textlayout;
@@ -56,6 +58,10 @@ struct eink_skia_context {
     sk_sp<SkUnicode> unicode;
     std::string font_dir;
     std::string default_family;
+    int fbink_fd = -1;
+    bool fbink_initialized = false;
+    FBInkConfig fbink_cfg{};
+    FBInkState fbink_state{};
 };
 
 void set_error(const char *fmt, ...) {
@@ -77,8 +83,24 @@ int fail_with_code(int code, const char *fmt, ...) {
     return -code;
 }
 
-int not_implemented(const char *function_name) {
-    return fail_with_code(ENOSYS, "%s: not implemented", function_name);
+int fail_with_errno(const char *what, int code) {
+    return fail_with_code(code, "%s: %s", what, strerror(code));
+}
+
+WFM_MODE_INDEX_T decode_waveform(int waveform) {
+    switch (waveform) {
+        case 1:
+            return WFM_DU;
+        case 2:
+            return WFM_GC16;
+        case 3:
+            return WFM_GL16;
+        case 4:
+            return WFM_A2;
+        case 0:
+        default:
+            return WFM_AUTO;
+    }
 }
 
 uint8_t color_component(float value) {
@@ -224,6 +246,52 @@ const char *select_family(eink_skia_context *context, const char *family) {
         return family;
     }
     return context->default_family.c_str();
+}
+
+int close_fbink(eink_skia_context *context) {
+    if (context->fbink_fd < 0) {
+        context->fbink_initialized = false;
+        return 0;
+    }
+
+    int rv = fbink_close(context->fbink_fd);
+    context->fbink_fd = -1;
+    context->fbink_initialized = false;
+    if (rv != EXIT_SUCCESS) {
+        return fail_with_code(EIO, "fbink_close failed with rv=%d", rv);
+    }
+
+    return 0;
+}
+
+int ensure_fbink(eink_skia_context *context) {
+    if (context->fbink_initialized && context->fbink_fd >= 0) {
+        return 0;
+    }
+
+    context->fbink_cfg = FBInkConfig{};
+    context->fbink_state = FBInkState{};
+    context->fbink_cfg.is_quiet = true;
+    context->fbink_cfg.is_verbose = false;
+
+    context->fbink_fd = fbink_open();
+    if (context->fbink_fd < 0) {
+        return fail_with_errno("fbink_open", errno ? errno : ENODEV);
+    }
+
+    int rv = fbink_init(context->fbink_fd, &context->fbink_cfg);
+    if (rv != EXIT_SUCCESS) {
+        int saved = errno ? errno : EIO;
+        fbink_close(context->fbink_fd);
+        context->fbink_fd = -1;
+        context->fbink_initialized = false;
+        return fail_with_errno("fbink_init", saved);
+    }
+
+    fbink_get_state(&context->fbink_cfg, &context->fbink_state);
+    context->fbink_initialized = true;
+    clear_error();
+    return 0;
 }
 
 std::unique_ptr<textlayout::Paragraph> make_paragraph(eink_skia_context *context,
@@ -391,7 +459,12 @@ int eink_skia_destroy(void *ctx) {
         return -EINVAL;
     }
 
+    int rv = close_fbink(context);
     delete context;
+    if (rv != 0) {
+        return rv;
+    }
+
     clear_error();
     return 0;
 }
@@ -711,13 +784,64 @@ int eink_skia_present(void *ctx,
                       int waveform,
                       int flash,
                       int wait) {
-    (void)ctx;
-    (void)x;
-    (void)y;
-    (void)width;
-    (void)height;
-    (void)waveform;
-    (void)flash;
-    (void)wait;
-    return not_implemented("eink_skia_present");
+    eink_skia_context *context = as_context(ctx, "eink_skia_present");
+    if (context == nullptr) {
+        return -EINVAL;
+    }
+    if (width <= 0 || height <= 0) {
+        return fail_with_code(EINVAL,
+                              "eink_skia_present: invalid present geometry width=%d height=%d",
+                              width,
+                              height);
+    }
+    if (width != context->width || height != context->height) {
+        return fail_with_code(EINVAL,
+                              "eink_skia_present: full-screen present only; requested %dx%d context %dx%d",
+                              width,
+                              height,
+                              context->width,
+                              context->height);
+    }
+    if (x < std::numeric_limits<short>::min() || x > std::numeric_limits<short>::max() ||
+        y < std::numeric_limits<short>::min() || y > std::numeric_limits<short>::max()) {
+        return fail_with_code(EINVAL, "eink_skia_present: offset out of range x=%d y=%d", x, y);
+    }
+
+    int init_rv = ensure_fbink(context);
+    if (init_rv != 0) {
+        return init_rv;
+    }
+
+    FBInkConfig cfg = context->fbink_cfg;
+    cfg.wfm_mode = decode_waveform(waveform);
+    cfg.is_flashing = flash != 0;
+    cfg.ignore_alpha = true;
+
+    const size_t len = context->pixels.size();
+    int rv = fbink_print_raw_data(context->fbink_fd,
+                                  context->pixels.data(),
+                                  context->width,
+                                  context->height,
+                                  len,
+                                  static_cast<short>(x),
+                                  static_cast<short>(y),
+                                  &cfg);
+    if (rv < 0) {
+        int saved = errno ? errno : EIO;
+        set_error("fbink_print_raw_data failed with rv=%d errno=%d (%s)", rv, saved, strerror(saved));
+        return rv;
+    }
+
+    if (wait != 0) {
+        int wrv = fbink_wait_for_complete(context->fbink_fd, LAST_MARKER);
+        if (wrv != EXIT_SUCCESS && wrv != -ENOSYS && wrv != -EINVAL) {
+            int saved = errno ? errno : EIO;
+            set_error("fbink_wait_for_complete failed with rv=%d errno=%d (%s)", wrv, saved, strerror(saved));
+            return wrv;
+        }
+    }
+
+    context->previous_pixels = context->pixels;
+    clear_error();
+    return 0;
 }
