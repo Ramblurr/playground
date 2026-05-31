@@ -65,6 +65,22 @@
               :allows-stale-native-lib?  (or (str/includes? script "elif [[ ! -f \"$DIST/lib/libclojure_eink.so\" ]]")
                                              (str/includes? script "elif [[ ! -f \"$DIST/lib/libclojure_eink_skia.so\" ]]"))})))))
 
+(deftest package-script-accepts-native-result-overrides-test
+  (testing "bb build can pass native Nix result paths without root result symlinks"
+    (let [script (slurp "scripts/package-kobo-dist.sh")]
+      (is (= {:declares-fbink-override?     true
+              :declares-skia-override?      true
+              :uses-fbink-override-copy?    true
+              :uses-fbink-override-closure? true
+              :uses-skia-override-copy?     true
+              :uses-skia-override-closure?  true}
+             {:declares-fbink-override?     (str/includes? script "KOBO_NATIVE_RESULT=${KOBO_NATIVE_RESULT:-$ROOT/result-kobo-native}")
+              :declares-skia-override?      (str/includes? script "KOBO_SKIA_NATIVE_RESULT=${KOBO_SKIA_NATIVE_RESULT:-$ROOT/result-kobo-skia-native}")
+              :uses-fbink-override-copy?    (str/includes? script "cp -P \"$KOBO_NATIVE_RESULT\"/lib/libclojure_eink.so")
+              :uses-fbink-override-closure? (str/includes? script "copy_nix_runtime_libs \"$KOBO_NATIVE_RESULT\"")
+              :uses-skia-override-copy?     (str/includes? script "cp -P \"$KOBO_SKIA_NATIVE_RESULT\"/lib/libclojure_eink_skia.so")
+              :uses-skia-override-closure?  (str/includes? script "copy_nix_runtime_libs \"$KOBO_SKIA_NATIVE_RESULT\"")})))))
+
 (deftest runtime-scripts-include-jvm-dependencies-test
   (testing "tracked Kobo scripts include copied Maven dependency jars on the runtime classpath"
     (is (= (zipmap expected-runtime-scripts (repeat true))
@@ -102,14 +118,14 @@
               :exports-font-dir?              true
               :sets-ld-library-path?          true
               :runs-skia-demo-main?           true}
-             {:copies-skia-bridge?            (and (str/includes? script "result-kobo-skia-native/lib")
+             {:copies-skia-bridge?            (and (str/includes? script "KOBO_SKIA_NATIVE_RESULT")
                                                    (str/includes? script "libclojure_eink_skia.so"))
               :copies-skia-runtime-libs?      (str/includes? script "libsk*.so*")
               :copies-fbink-runtime-libs?     (str/includes? script "libfbink.so*")
-              :dereferences-fbink-symlinks?   (str/includes? script "cp -L \"$ROOT\"/result-kobo-native/lib/libfbink.so*")
+              :dereferences-fbink-symlinks?   (str/includes? script "cp -L \"$KOBO_NATIVE_RESULT\"/lib/libfbink.so*")
               :copies-nix-runtime-closure?    (and (str/includes? script "copy_nix_runtime_libs")
                                                    (str/includes? script "nix-store -qR")
-                                                   (str/includes? script "result-kobo-skia-native"))
+                                                   (str/includes? script "copy_nix_runtime_libs \"$KOBO_SKIA_NATIVE_RESULT\""))
               :dereferences-closure-symlinks? (str/includes? script "cp -L \"$lib_path\"")
               :overwrites-duplicate-libs?     (str/includes? script "rm -f \"$DIST/lib/$(basename -- \"$lib_path\")\"")
               :excludes-glibc-closure-libs?   (str/includes? script "*-glibc-*)")

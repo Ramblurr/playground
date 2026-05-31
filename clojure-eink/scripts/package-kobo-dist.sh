@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 DIST="$ROOT/target/dist"
 DIST_TEMPLATE="$ROOT/resources/kobo-dist"
+KOBO_NATIVE_RESULT=${KOBO_NATIVE_RESULT:-$ROOT/result-kobo-native}
+KOBO_SKIA_NATIVE_RESULT=${KOBO_SKIA_NATIVE_RESULT:-$ROOT/result-kobo-skia-native}
 JAR_NAME="clojure-eink-demo.jar"
 
 cd "$ROOT"
@@ -50,13 +52,13 @@ if [[ -z "${jar_path:-}" ]]; then
 fi
 cp "$jar_path" "$DIST/$JAR_NAME"
 
-if [[ -d "$ROOT/result-kobo-native/lib" ]]; then
-  cp -P "$ROOT"/result-kobo-native/lib/libclojure_eink.so "$DIST/lib/"
-  cp -L "$ROOT"/result-kobo-native/lib/libfbink.so* "$DIST/lib/"
-  copy_nix_runtime_libs "$ROOT/result-kobo-native"
+if [[ -d "$KOBO_NATIVE_RESULT/lib" ]]; then
+  cp -P "$KOBO_NATIVE_RESULT"/lib/libclojure_eink.so "$DIST/lib/"
+  cp -L "$KOBO_NATIVE_RESULT"/lib/libfbink.so* "$DIST/lib/"
+  copy_nix_runtime_libs "$KOBO_NATIVE_RESULT"
 else
-  cat >&2 <<'EOF'
-Missing result-kobo-native/lib/libclojure_eink.so.
+  cat >&2 <<EOF
+Missing $KOBO_NATIVE_RESULT/lib/libclojure_eink.so.
 Build or link the Kobo native package first, for example:
 
   nix build .#clojure-eink-fbink-bridge-kobo -o result-kobo-native
@@ -66,13 +68,13 @@ EOF
   exit 1
 fi
 
-if [[ -d "$ROOT/result-kobo-skia-native/lib" ]]; then
-  cp -P "$ROOT"/result-kobo-skia-native/lib/libclojure_eink_skia.so "$DIST/lib/"
-  cp -P "$ROOT"/result-kobo-skia-native/lib/libsk*.so* "$DIST/lib/"
-  copy_nix_runtime_libs "$ROOT/result-kobo-skia-native"
+if [[ -d "$KOBO_SKIA_NATIVE_RESULT/lib" ]]; then
+  cp -P "$KOBO_SKIA_NATIVE_RESULT"/lib/libclojure_eink_skia.so "$DIST/lib/"
+  cp -P "$KOBO_SKIA_NATIVE_RESULT"/lib/libsk*.so* "$DIST/lib/"
+  copy_nix_runtime_libs "$KOBO_SKIA_NATIVE_RESULT"
 else
-  cat >&2 <<'EOF'
-Missing result-kobo-skia-native/lib/libclojure_eink_skia.so.
+  cat >&2 <<EOF
+Missing $KOBO_SKIA_NATIVE_RESULT/lib/libclojure_eink_skia.so.
 Build or link the Kobo Skia native package first, for example:
 
   nix build .#clojure-eink-skia-bridge-kobo -o result-kobo-skia-native

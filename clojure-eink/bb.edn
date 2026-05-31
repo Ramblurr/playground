@@ -59,8 +59,18 @@
                   :task             (shell "clojure -T:build jar")}
 
          clean   {:override-builtin true
-                  :doc              "Clean build artifacts"
-                  :task             (shell "clojure -T:build clean")}
+                  :doc              "Clean build artifacts and root Nix result symlinks"
+                  :task             (do
+                                      (shell "clojure -T:build clean")
+                                      (shell "find" "." "-maxdepth" "1" "-type" "l" "(" "-name" "result" "-o" "-name" "result-*" ")" "-delete"))}
+
+         build   {:doc     "Build Kobo native artifacts and package target/dist"
+                  :depends [clean]
+                  :task    (do
+                             (shell "mkdir -p target/nix-results")
+                             (shell "nix" "build" ".#clojure-eink-fbink-bridge-kobo" "-o" "target/nix-results/kobo-native")
+                             (shell "nix" "build" ".#clojure-eink-skia-bridge-kobo" "-o" "target/nix-results/kobo-skia-native")
+                             (shell "env" "KOBO_NATIVE_RESULT=target/nix-results/kobo-native" "KOBO_SKIA_NATIVE_RESULT=target/nix-results/kobo-skia-native" "scripts/package-kobo-dist.sh"))}
 
          publish {:doc     "Publish the clojure sdk libs to clojars"
                   :depends [jar]

@@ -23,10 +23,20 @@
 
 ```sh
 bb test
+bb clean
+bb build
 clojure -M:kaocha
 clojure -T:build jar
-scripts/package-kobo-dist.sh
 ```
+
+Build workflow notes:
+
+- Use `bb build` to produce `target/dist/` from a clean tree.
+- `bb build` runs `bb clean`, builds Kobo native Nix artifacts under `target/nix-results/`, then runs `scripts/package-kobo-dist.sh`.
+- `bb clean` removes `target/` and root-level Nix result symlinks matching `result` or `result-*`.
+- `target/dist/` is generated output. Do not keep source-only files there.
+- Runtime dist templates live in `resources/kobo-dist/`; update those templates instead of editing files under `target/dist/`.
+- Run `scripts/package-kobo-dist.sh` directly only when the required native result paths already exist, or pass `KOBO_NATIVE_RESULT` and `KOBO_SKIA_NATIVE_RESULT`.
 
 Useful local Membrane smoke:
 
