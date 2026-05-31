@@ -42,7 +42,7 @@
                      {:error (.getMessage e)}))]
       (is (= {:renders      5
               :present-mode :none
-              :native?      false}
+              :native?      true}
              parsed)))))
 
 (deftest render-demo-frame-timings-test

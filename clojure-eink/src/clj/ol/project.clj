@@ -301,7 +301,7 @@
       (let [[arg & more] xs]
         (case arg
           "--present" (recur (assoc opts :present? true :native? true :present-mode :each) more)
-          "--no-present" (recur (assoc opts :present? false :native? false :present-mode :none) more)
+          "--no-present" (recur (assoc opts :present? false :present-mode :none) more)
           "--present-last" (recur (assoc opts :present? true :native? true :present-mode :last) more)
           "--present-each" (recur (assoc opts :present? true :native? true :present-mode :each) more)
           "--renders" (recur (assoc opts :renders (parse-positive-long-option arg (first more))) (next more))
