@@ -1,0 +1,2 @@
+{:lint-as {membrane.component/defui clojure.core/defn}
+ :exclude-files "src/clj/membrane/"}

@@ -2,7 +2,8 @@
 .idea
 .cpcache/
 **/.claude/settings.local.json
-.clj-kondo/
+.clj-kondo/*
+!.clj-kondo/config.edn
 .lsp/
 .nrepl-port
 archive/
@@ -18,3 +19,4 @@ result-*
 prompts/
 screenshots/
 .tmuxb_session
+.worktrees/

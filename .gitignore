@@ -2,5 +2,7 @@
 extra/
 .lsp
 .clj-kondo
+!clojure-eink/.clj-kondo/
+!clojure-eink/.clj-kondo/config.edn
 .pi
 archive

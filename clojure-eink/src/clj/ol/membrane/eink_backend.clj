@@ -314,7 +314,7 @@
 
   Returns nil when buffers are equal. A nil or incompatible previous buffer returns
   the full current rectangle."
-  [previous {:keys [width height stride data] :as current}]
+  [previous {:keys [width height stride data]}]
   (if (or (nil? previous)
           (not= width (:width previous))
           (not= height (:height previous)))
@@ -360,8 +360,7 @@
 
   When `:native?` is true, loads and initializes the native FBInk bridge.
   Tests may pass `:native` directly to avoid native loading."
-  [{:keys [native native? native-lib width height image-cache font-cache previous-gray]
-    :as   opts}]
+  [{:keys [native native? native-lib width height image-cache font-cache previous-gray]}]
   (let [native-lib' (or native-lib (project/default-native-lib))
         loaded?     (and native? (nil? native))
         native'     (or native
