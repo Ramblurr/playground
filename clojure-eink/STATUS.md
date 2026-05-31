@@ -27,8 +27,7 @@ See [`PERF_NOTES.md`](PERF_NOTES.md) for benchmark commands and detailed timings
 Build and deploy:
 
 ```sh
-clojure -T:build jar
-cp target/TODO-0.0.TODO.jar target/dist/clojure-eink-demo.jar
+scripts/package-kobo-dist.sh
 rsync -rtv --delete --no-owner --no-group --no-perms target/dist/ \
   root@kobo-lan:/mnt/onboard/clojure-eink-demo/
 ```
