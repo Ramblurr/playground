@@ -1,1 +1,418 @@
-(ns ol.project)
+(ns ol.project
+  (:require
+   [clojure.java.io :as io]
+   [clojure.string :as str])
+  (:import
+   [java.awt Color Font Graphics2D RenderingHints]
+   [java.awt.font LineBreakMeasurer TextAttribute]
+   [java.awt.image BufferedImage ComponentSampleModel DataBufferByte]
+   [java.lang.foreign Arena FunctionDescriptor Linker Linker$Option MemoryLayout MemorySegment SymbolLookup ValueLayout]
+   [java.lang.invoke MethodHandle]
+   [java.nio.charset StandardCharsets]
+   [java.nio.file Path]
+   [javax.imageio ImageIO]))
+
+(def default-text
+  "Clojure rendered this paragraph with Java2D TextLayout, copied the grayscale pixels through Java FFM, and asked a tiny C library to present them with FBInk.")
+
+(def waveforms
+  {:auto 0
+   :du   1
+   :gc16 2
+   :gl16 3
+   :a2   4})
+
+(defonce process-start-ns (System/nanoTime))
+
+(defn elapsed-ms
+  []
+  (/ (double (- (System/nanoTime) process-start-ns)) 1000000.0))
+
+(defn log-time!
+  [label]
+  (printf "[%.1f ms] %s%n" (elapsed-ms) label)
+  (flush))
+
+(defn ns->ms
+  [nanos]
+  (/ (double nanos) 1000000.0))
+
+(defn timed
+  [f]
+  (let [start  (System/nanoTime)
+        result (f)
+        end    (System/nanoTime)]
+    [result (ns->ms (- end start))]))
+
+(defn log-duration!
+  [label ms]
+  (printf "[%.1f ms] %s: %.1f ms%n" (elapsed-ms) label (double ms))
+  (flush))
+
+(def render-phase-order
+  [[:image-allocation "image allocation"]
+   [:graphics-setup "graphics setup"]
+   [:font-setup "font setup"]
+   [:background-fill "background fill"]
+   [:text-layout "text layout"]
+   [:glyph-draw "glyph draw"]
+   [:total-render "Java2D render total"]
+   [:image->gray8 "image->gray8"]
+   [:native-present "native present"]])
+
+(defn log-render-timings!
+  [iteration total-renders timings]
+  (doseq [[k label] render-phase-order
+          :when (contains? timings k)]
+    (log-duration! (format "render %d/%d %s" iteration total-renders label) (get timings k))))
+
+(defn- layout-body-lines
+  [^Graphics2D g paragraph ^Font body-font width height margin ^Font title-font]
+  (let [attributed (java.text.AttributedString. ^String paragraph)
+        _          (.addAttribute attributed TextAttribute/FONT body-font)
+        iterator   (.getIterator attributed)
+        frc        (.getFontRenderContext g)
+        measurer   (LineBreakMeasurer. iterator frc)
+        end        (.getEndIndex iterator)
+        wrap-width (float (- width (* 2 margin)))
+        start-y    (float (+ margin (.getSize title-font) margin))]
+    (loop [y       start-y
+           layouts []]
+      (if (and (< (.getPosition measurer) end)
+               (< y (- height margin)))
+        (let [layout   (.nextLayout measurer wrap-width)
+              baseline (+ y (.getAscent layout))]
+          (recur (float (+ baseline (.getDescent layout) (.getLeading layout)))
+                 (conj layouts [layout (float margin) (float baseline)])))
+        layouts))))
+
+(defn render-demo-frame
+  [{:keys [width height text margin font-size]
+    :or   {width  800
+           height 600
+           text   default-text
+           margin 48}}]
+  (let [[image image-allocation-ms] (timed #(BufferedImage. width height BufferedImage/TYPE_BYTE_GRAY))
+        ^Graphics2D g              (.createGraphics ^BufferedImage image)]
+    (try
+      (let [[fonts font-setup-ms]
+            (timed
+             #(let [font-size (or font-size (max 22 (quot width 28)))]
+                {:body-font  (Font. "SansSerif" Font/PLAIN font-size)
+                 :title-font (Font. "SansSerif" Font/BOLD (max 28 (quot width 22)))}))
+            {:keys [body-font title-font]} fonts
+            [_graphics graphics-setup-ms]
+            (timed
+             #(do
+                (.setRenderingHint g RenderingHints/KEY_TEXT_ANTIALIASING RenderingHints/VALUE_TEXT_ANTIALIAS_ON)
+                (.setRenderingHint g RenderingHints/KEY_ANTIALIASING RenderingHints/VALUE_ANTIALIAS_ON)))
+            [_background background-fill-ms]
+            (timed
+             #(do
+                (.setColor g Color/WHITE)
+                (.fillRect g 0 0 width height)))
+            [body-layouts text-layout-ms]
+            (timed
+             #(layout-body-lines g (str/replace text #"\s+" " ") body-font width height margin title-font))
+            [_glyphs glyph-draw-ms]
+            (timed
+             #(do
+                (.setColor g Color/BLACK)
+                (.setFont g title-font)
+                (.drawString g "Clojure e-ink PoC" margin margin)
+                (doseq [[layout x baseline] body-layouts]
+                  (.draw layout g (float x) (float baseline)))))]
+        {:image   image
+         :timings {:image-allocation image-allocation-ms
+                   :graphics-setup   graphics-setup-ms
+                   :font-setup       font-setup-ms
+                   :background-fill  background-fill-ms
+                   :text-layout      text-layout-ms
+                   :glyph-draw       glyph-draw-ms}})
+      (finally
+        (.dispose g)))))
+
+(defn render-demo-image
+  [opts]
+  (:image (render-demo-frame opts)))
+
+(defn image->gray8
+  [^BufferedImage image]
+  (let [raster       (.getRaster image)
+        data-buffer  (.getDataBuffer raster)
+        sample-model (.getSampleModel raster)
+        width        (.getWidth image)
+        height       (.getHeight image)]
+    (when-not (instance? DataBufferByte data-buffer)
+      (throw (ex-info "expected a byte-backed grayscale BufferedImage" {:image-type (.getType image)})))
+    (let [raw    (.getData ^DataBufferByte data-buffer)
+          offset (.getOffset ^DataBufferByte data-buffer)
+          stride (if (instance? ComponentSampleModel sample-model)
+                   (.getScanlineStride ^ComponentSampleModel sample-model)
+                   width)]
+      (if (and (zero? offset)
+               (= stride width)
+               (= (alength ^bytes raw) (* width height)))
+        {:width width :height height :stride stride :data raw}
+        (let [compact (byte-array (* width height))]
+          (dotimes [row height]
+            (System/arraycopy raw (+ offset (* row stride)) compact (* row width) width))
+          {:width width :height height :stride width :data compact})))))
+
+(defn write-png!
+  [^BufferedImage image path]
+  (let [file (io/file path)]
+    (some-> file .getParentFile .mkdirs)
+    (ImageIO/write image "png" file)
+    (.getAbsolutePath file)))
+
+(defn- descriptor
+  [return-layout arg-layouts]
+  (if return-layout
+    (FunctionDescriptor/of return-layout (into-array MemoryLayout arg-layouts))
+    (FunctionDescriptor/ofVoid (into-array MemoryLayout arg-layouts))))
+
+(defn- linker-downcall-method
+  []
+  (.getMethod Linker
+              "downcallHandle"
+              (into-array Class [MemorySegment
+                                 FunctionDescriptor
+                                 (class (make-array Linker$Option 0))])))
+
+(defn- downcall
+  [^SymbolLookup lookup ^Linker linker symbol return-layout arg-layouts]
+  (let [address (.orElseThrow (.find lookup symbol))
+        options (make-array Linker$Option 0)
+        method  (linker-downcall-method)]
+    (.invoke method
+             linker
+             (object-array [address (descriptor return-layout arg-layouts) options]))))
+
+(defn- invoke-native
+  [^MethodHandle handle & args]
+  (.invokeWithArguments handle (object-array args)))
+
+(defn load-native
+  [library-path]
+  (let [path           (Path/of (.getAbsolutePath (io/file library-path)) (into-array String []))
+        lookup         (SymbolLookup/libraryLookup path (Arena/global))
+        linker         (Linker/nativeLinker)
+        int-layout     ValueLayout/JAVA_INT
+        address-layout ValueLayout/ADDRESS]
+    {:init          (downcall lookup linker "eink_init" int-layout [int-layout int-layout])
+     :close         (downcall lookup linker "eink_close" int-layout [])
+     :width         (downcall lookup linker "eink_screen_width" int-layout [])
+     :height        (downcall lookup linker "eink_screen_height" int-layout [])
+     :present-gray8 (downcall lookup linker
+                              "eink_present_gray8"
+                              int-layout
+                              [address-layout int-layout int-layout int-layout int-layout int-layout int-layout int-layout int-layout])
+     :last-error    (downcall lookup linker "eink_last_error" address-layout [])}))
+
+(defn native-last-error
+  [native]
+  (let [address (invoke-native (:last-error native))]
+    (when-not (= MemorySegment/NULL address)
+      (let [segment (.reinterpret ^MemorySegment address (long 4096))]
+        (loop [i     0
+               bytes []]
+          (let [b (bit-and 0xFF (int (.get segment ValueLayout/JAVA_BYTE (long i))))]
+            (if (zero? b)
+              (String. (byte-array (map unchecked-byte bytes)) StandardCharsets/UTF_8)
+              (recur (inc i) (conj bytes b)))))))))
+
+(defn- check-native!
+  [native rv action]
+  (let [code (int rv)]
+    (when (neg? code)
+      (throw (ex-info (str action " failed: " (or (native-last-error native) code))
+                      {:action action :code code})))
+    code))
+
+(defn present-gray8!
+  [native {:keys [width height stride data]} {:keys [x y waveform flash? wait?]
+                                             :or   {x 0 y 0 waveform :gc16 flash? true wait? true}}]
+  (let [mode (get waveforms waveform (:gc16 waveforms))]
+    (with-open [arena (Arena/ofConfined)]
+      (let [segment (.allocate arena (long (alength ^bytes data)) 1)]
+        (MemorySegment/copy data 0 segment ValueLayout/JAVA_BYTE 0 (alength ^bytes data))
+        (check-native!
+         native
+         (invoke-native (:present-gray8 native)
+                        segment
+                        (int width)
+                        (int height)
+                        (int stride)
+                        (int x)
+                        (int y)
+                        (int mode)
+                        (int (if flash? 1 0))
+                        (int (if wait? 1 0)))
+         "eink_present_gray8")))))
+
+(defn present-image!
+  [native ^BufferedImage image opts]
+  (present-gray8! native (image->gray8 image) opts))
+
+(defn default-native-lib
+  []
+  (or (System/getenv "EINK_NATIVE_LIB")
+      (some #(when (.exists (io/file %)) %)
+            ["result-native/lib/libclojure_eink.so"
+             "result/lib/libclojure_eink.so"
+             "libclojure_eink.so"])))
+
+(defn- option-value
+  [option value]
+  (when-not value
+    (throw (ex-info (str "missing value for " option) {:option option})))
+  value)
+
+(defn- parse-positive-long-option
+  [option value]
+  (let [raw (option-value option value)
+        n   (try
+              (parse-long raw)
+              (catch Exception _
+                (throw (ex-info (str "invalid integer for " option ": " raw)
+                                {:option option :value raw}))))]
+    (when-not (pos? n)
+      (throw (ex-info (str option " must be positive") {:option option :value raw})))
+    n))
+
+(defn parse-args
+  [args]
+  (loop [opts {:text         default-text
+               :png          nil
+               :present?     false
+               :native?      false
+               :present-mode :none
+               :native-lib   nil
+               :width        nil
+               :height       nil
+               :renders      1
+               :waveform     :gc16
+               :flash?       true
+               :wait?        true}
+         xs   (seq args)]
+    (if-not xs
+      opts
+      (let [[arg & more] xs]
+        (case arg
+          "--present" (recur (assoc opts :present? true :native? true :present-mode :each) more)
+          "--no-present" (recur (assoc opts :present? false :native? false :present-mode :none) more)
+          "--present-last" (recur (assoc opts :present? true :native? true :present-mode :last) more)
+          "--present-each" (recur (assoc opts :present? true :native? true :present-mode :each) more)
+          "--renders" (recur (assoc opts :renders (parse-positive-long-option arg (first more))) (next more))
+          "--repeat" (recur (assoc opts :renders (parse-positive-long-option arg (first more))) (next more))
+          "--png" (recur (assoc opts :png (option-value arg (first more))) (next more))
+          "--native-lib" (recur (assoc opts :native-lib (option-value arg (first more))) (next more))
+          "--width" (recur (assoc opts :width (parse-positive-long-option arg (first more))) (next more))
+          "--height" (recur (assoc opts :height (parse-positive-long-option arg (first more))) (next more))
+          "--text" (recur (assoc opts :text (option-value arg (first more))) (next more))
+          "--waveform" (recur (assoc opts :waveform (keyword (str/lower-case (option-value arg (first more))))) (next more))
+          "--no-flash" (recur (assoc opts :flash? false) more)
+          "--no-wait" (recur (assoc opts :wait? false) more)
+          "--help" (recur (assoc opts :help? true) more)
+          (if (str/starts-with? arg "--")
+            (throw (ex-info (str "unknown option: " arg) {:arg arg}))
+            (assoc opts :text (str/join " " xs))))))))
+
+(defn usage
+  []
+  (str "Usage:\n"
+       "  clojure -M -m ol.project --png target/eink-demo.png\n"
+       "  EINK_NATIVE_LIB=result-kobo-native/lib/libclojure_eink.so \\\n"
+       "    clojure -J--enable-native-access=ALL-UNNAMED -M -m ol.project --present\n\n"
+       "Options: --text TEXT --width N --height N --renders N --repeat N "
+       "--present --no-present --present-last --present-each "
+       "--waveform auto|du|gc16|gl16|a2 --no-flash --no-wait"))
+
+(defn- should-present-iteration?
+  [present-mode iteration total-renders]
+  (case present-mode
+    :each true
+    :last (= iteration total-renders)
+    :none false
+    false))
+
+(defn -main
+  [& args]
+  (log-time! "entered ol.project/-main")
+  (let [opts (parse-args args)]
+    (log-time! "parsed args")
+    (if (:help? opts)
+      (println (usage))
+      (let [native-lib   (or (:native-lib opts) (default-native-lib))
+            native       (when (:native? opts)
+                           (when-not native-lib
+                             (throw (ex-info "native library path not provided and no default native library was found" {})))
+                           (let [loaded (load-native native-lib)]
+                             (log-time! "loaded native library and linked symbols")
+                             loaded))
+            initialized? (volatile! false)]
+        (try
+          (when native
+            (check-native! native (invoke-native (:init native) (int 1) (int 0)) "eink_init")
+            (vreset! initialized? true)
+            (log-time! "initialized FBInk/native backend"))
+          (let [width       (or (:width opts)
+                                (when native
+                                  (let [w (int (invoke-native (:width native)))]
+                                    (log-time! (str "queried screen width: " w))
+                                    w))
+                                800)
+                height      (or (:height opts)
+                                (when native
+                                  (let [h (int (invoke-native (:height native)))]
+                                    (log-time! (str "queried screen height: " h))
+                                    h))
+                                600)
+                total-renders (:renders opts)
+                render-opts (assoc opts :width width :height height)
+                last-image  (loop [iteration 1
+                                   last-image nil]
+                              (if (> iteration total-renders)
+                                last-image
+                                (do
+                                  (log-time! (format "render %d/%d starting Java2D render %dx%d"
+                                                     iteration
+                                                     total-renders
+                                                     width
+                                                     height))
+                                  (let [[frame total-render-ms] (timed #(render-demo-frame render-opts))
+                                        {:keys [image timings]} frame
+                                        [gray gray8-ms]         (timed #(image->gray8 image))
+                                        present?                (and native
+                                                                     (should-present-iteration? (:present-mode opts)
+                                                                                                iteration
+                                                                                                total-renders))
+                                        present-ms              (when present?
+                                                                  (log-time! (format "render %d/%d starting native present"
+                                                                                     iteration
+                                                                                     total-renders))
+                                                                  (let [[_present rv-ms] (timed #(present-gray8! native gray opts))]
+                                                                    rv-ms))
+                                        all-timings             (cond-> (assoc timings
+                                                                               :total-render total-render-ms
+                                                                               :image->gray8 gray8-ms)
+                                                                  present-ms (assoc :native-present present-ms))]
+                                    (log-render-timings! iteration total-renders all-timings)
+                                    (when present?
+                                      (log-time! (format "render %d/%d finished native present" iteration total-renders)))
+                                    (recur (inc iteration) image)))))]
+            (when-let [png (:png opts)]
+              (log-time! "starting PNG write")
+              (println "wrote" (write-png! last-image png))
+              (log-time! "finished PNG write"))
+            (if native
+              (println "benchmarked" total-renders "render(s)" width "x" height
+                       "via" native-lib "present-mode" (name (:present-mode opts)))
+              (println "benchmarked" total-renders "render(s)" width "x" height
+                       "without native present")))
+          (finally
+            (when (and native @initialized?)
+              (log-time! "closing native backend")
+              (invoke-native (:close native))
+              (log-time! "closed native backend"))))))))
