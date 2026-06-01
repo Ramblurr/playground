@@ -1,5 +1,6 @@
 (ns ol.membrane-demo.kobo-test
   (:require
+   [clojure.string]
    [clojure.test :refer [deftest is testing]]
    [membrane.component :as component]
    [membrane.ui :as ui]
@@ -69,6 +70,11 @@
                            :fonts
                            (select-keys [:status :title :menu :tab])
                            (update-vals :size))}))))
+
+(deftest more-screen-layout-does-not-require-java2d-backend-test
+  (testing "Kobo More layout stays backend-neutral so Skia does not load Java2D for text sizes"
+    (is (not (clojure.string/includes? (slurp "src/clj/ol/membrane_demo/kobo.clj")
+                                        "ol.membrane.backend.java2d")))))
 
 (deftest more-screen-component-tree-test
   (testing "component app renders the expected Kobo More labels"

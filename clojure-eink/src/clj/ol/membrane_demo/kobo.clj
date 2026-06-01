@@ -2,8 +2,7 @@
   (:require
    [membrane.basic-components :as basic]
    [membrane.component :as component :refer [defui]]
-   [membrane.ui :as ui]
-   [ol.membrane.backend.java2d :as backend]))
+   [membrane.ui :as ui]))
 
 (def basic-components-loaded?
   (var? #'basic/button))
@@ -88,9 +87,18 @@
   (ui/with-color color
     (ui/rectangle width thickness)))
 
+(defn- approximate-text-bounds
+  [text font]
+  (let [size (double (or (:size font) (:size ui/default-font)))]
+    [(* 0.58 size (count (str text)))
+     (* 1.35 size)]))
+
 (defn- label-size
   [text font]
-  (backend/text-bounds font text))
+  (let [label (ui/label text font)]
+    (if (satisfies? ui/IBounds label)
+      (ui/bounds label)
+      (approximate-text-bounds text font))))
 
 (defn- center-in
   [elem [w h]]

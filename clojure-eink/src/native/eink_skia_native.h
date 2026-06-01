@@ -61,6 +61,14 @@ int eink_skia_draw_text_box(void *ctx,
                             float y,
                             float max_width);
 
+int eink_skia_text_cache_stats(void *ctx,
+                               int *out_entries,
+                               int *out_hits,
+                               int *out_misses,
+                               int *out_evictions);
+
+int eink_skia_clear_text_cache(void *ctx);
+
 int eink_skia_replay_commands(void *ctx,
                               const unsigned char *commands,
                               size_t command_len,

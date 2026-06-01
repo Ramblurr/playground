@@ -14,6 +14,7 @@
 #include <memory>
 #include <new>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "core/SkCanvas.h"
@@ -44,6 +45,52 @@ namespace textlayout = skia::textlayout;
 
 thread_local char last_error[512] = "";
 
+constexpr size_t TEXT_CACHE_MAX_ENTRIES = 512;
+
+struct TextCacheKey {
+    std::string utf8;
+    std::string family;
+    float size = 0.0f;
+    int weight = 0;
+    int slant = 0;
+    float max_width = 0.0f;
+    uint32_t color = 0;
+
+    bool operator==(const TextCacheKey &other) const {
+        return utf8 == other.utf8 && family == other.family && size == other.size &&
+               weight == other.weight && slant == other.slant && max_width == other.max_width &&
+               color == other.color;
+    }
+};
+
+uint32_t float_bits(float value) {
+    uint32_t bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+    return bits;
+}
+
+void hash_combine(size_t *seed, size_t value) {
+    *seed ^= value + 0x9e3779b97f4a7c15ULL + (*seed << 6) + (*seed >> 2);
+}
+
+struct TextCacheKeyHash {
+    size_t operator()(const TextCacheKey &key) const {
+        size_t seed = std::hash<std::string>{}(key.utf8);
+        hash_combine(&seed, std::hash<std::string>{}(key.family));
+        hash_combine(&seed, std::hash<uint32_t>{}(float_bits(key.size)));
+        hash_combine(&seed, std::hash<int>{}(key.weight));
+        hash_combine(&seed, std::hash<int>{}(key.slant));
+        hash_combine(&seed, std::hash<uint32_t>{}(float_bits(key.max_width)));
+        hash_combine(&seed, std::hash<uint32_t>{}(key.color));
+        return seed;
+    }
+};
+
+struct TextCacheEntry {
+    std::shared_ptr<textlayout::Paragraph> paragraph;
+    uint64_t last_used = 0;
+};
+
 struct eink_skia_context {
     int width;
     int height;
@@ -58,6 +105,11 @@ struct eink_skia_context {
     sk_sp<SkUnicode> unicode;
     std::string font_dir;
     std::string default_family;
+    std::unordered_map<TextCacheKey, TextCacheEntry, TextCacheKeyHash> text_cache;
+    uint64_t text_cache_tick = 0;
+    int text_cache_hits = 0;
+    int text_cache_misses = 0;
+    int text_cache_evictions = 0;
     int fbink_fd = -1;
     bool fbink_initialized = false;
     FBInkConfig fbink_cfg{};
@@ -294,50 +346,78 @@ int ensure_fbink(eink_skia_context *context) {
     return 0;
 }
 
-std::unique_ptr<textlayout::Paragraph> make_paragraph(eink_skia_context *context,
-                                                       const char *function_name,
-                                                       const char *utf8,
-                                                       int utf8_len,
-                                                       const char *family,
-                                                       float size,
-                                                       int weight,
-                                                       int slant,
-                                                       float max_width) {
+int canonical_slant(int slant) {
+    switch (slant) {
+        case 1:
+            return 1;
+        case 2:
+            return 2;
+        case 0:
+        default:
+            return 0;
+    }
+}
+
+
+bool make_text_cache_key(eink_skia_context *context,
+                         const char *function_name,
+                         const char *utf8,
+                         int utf8_len,
+                         const char *family,
+                         float size,
+                         int weight,
+                         int slant,
+                         float max_width,
+                         TextCacheKey *out_key) {
     if (utf8 == nullptr) {
         fail_with_code(EINVAL, "%s: utf8 is NULL", function_name);
-        return nullptr;
+        return false;
     }
     if (utf8_len < 0) {
         fail_with_code(EINVAL, "%s: invalid utf8_len=%d", function_name, utf8_len);
-        return nullptr;
+        return false;
     }
     if (!(size > 0.0f) || !std::isfinite(size)) {
         fail_with_code(EINVAL, "%s: invalid size=%g", function_name, static_cast<double>(size));
-        return nullptr;
+        return false;
     }
     if (!(max_width > 0.0f) || !std::isfinite(max_width)) {
         fail_with_code(EINVAL,
                        "%s: invalid max_width=%g",
                        function_name,
                        static_cast<double>(max_width));
-        return nullptr;
+        return false;
     }
     if (!context->font_collection || !context->unicode) {
         fail_with_code(EINVAL, "%s: font collection is not initialized", function_name);
-        return nullptr;
+        return false;
     }
 
+    out_key->utf8.assign(utf8, static_cast<size_t>(utf8_len));
+    out_key->family = select_family(context, family);
+    out_key->size = size;
+    out_key->weight = normalize_weight(weight);
+    out_key->slant = canonical_slant(slant);
+    out_key->max_width = max_width;
+    out_key->color = context->paint.getColor();
+    return true;
+}
+
+std::shared_ptr<textlayout::Paragraph> build_paragraph(eink_skia_context *context,
+                                                        const char *function_name,
+                                                        const TextCacheKey &key) {
     SkPaint foreground = context->paint;
     foreground.setStyle(SkPaint::kFill_Style);
+    foreground.setColor(key.color);
 
     textlayout::TextStyle text_style;
     text_style.setForegroundPaint(foreground);
-    text_style.setColor(context->paint.getColor());
-    text_style.setFontSize(size);
-    text_style.setFontStyle(SkFontStyle(normalize_weight(weight),
+    text_style.setColor(key.color);
+    text_style.setFontSize(key.size);
+    text_style.setFontStyle(SkFontStyle(key.weight,
                                         SkFontStyle::kNormal_Width,
-                                        decode_slant(slant)));
-    text_style.setFontFamilies({SkString(select_family(context, family))});
+                                        decode_slant(key.slant)));
+    text_style.setFontFamilies({SkString(key.family.c_str())});
     text_style.setTextBaseline(textlayout::TextBaseline::kAlphabetic);
 
     textlayout::ParagraphStyle paragraph_style;
@@ -352,14 +432,72 @@ std::unique_ptr<textlayout::Paragraph> make_paragraph(eink_skia_context *context
         return nullptr;
     }
 
-    builder->addText(utf8, static_cast<size_t>(utf8_len));
-    auto paragraph = builder->Build();
-    if (!paragraph) {
+    builder->addText(key.utf8.c_str(), key.utf8.size());
+    auto built = builder->Build();
+    if (!built) {
         fail_with_code(EINVAL, "%s: failed to build paragraph", function_name);
         return nullptr;
     }
 
-    paragraph->layout(max_width);
+    built->layout(key.max_width);
+    return std::shared_ptr<textlayout::Paragraph>(built.release());
+}
+
+void evict_text_cache_if_needed(eink_skia_context *context) {
+    if (context->text_cache.size() <= TEXT_CACHE_MAX_ENTRIES) {
+        return;
+    }
+
+    auto victim = std::min_element(context->text_cache.begin(),
+                                   context->text_cache.end(),
+                                   [](const auto &a, const auto &b) {
+                                       return a.second.last_used < b.second.last_used;
+                                   });
+    if (victim != context->text_cache.end()) {
+        context->text_cache.erase(victim);
+        ++context->text_cache_evictions;
+    }
+}
+
+std::shared_ptr<textlayout::Paragraph> make_paragraph(eink_skia_context *context,
+                                                       const char *function_name,
+                                                       const char *utf8,
+                                                       int utf8_len,
+                                                       const char *family,
+                                                       float size,
+                                                       int weight,
+                                                       int slant,
+                                                       float max_width) {
+    TextCacheKey key;
+    if (!make_text_cache_key(context,
+                             function_name,
+                             utf8,
+                             utf8_len,
+                             family,
+                             size,
+                             weight,
+                             slant,
+                             max_width,
+                             &key)) {
+        return nullptr;
+    }
+
+    uint64_t tick = ++context->text_cache_tick;
+    auto found = context->text_cache.find(key);
+    if (found != context->text_cache.end()) {
+        found->second.last_used = tick;
+        ++context->text_cache_hits;
+        return found->second.paragraph;
+    }
+
+    auto paragraph = build_paragraph(context, function_name, key);
+    if (!paragraph) {
+        return nullptr;
+    }
+
+    ++context->text_cache_misses;
+    context->text_cache.emplace(std::move(key), TextCacheEntry{paragraph, tick});
+    evict_text_cache_if_needed(context);
     return paragraph;
 }
 
@@ -375,6 +513,7 @@ enum BatchCommand : uint8_t {
     CMD_DRAW_RECT = 9,
     CMD_DRAW_ROUND_RECT = 10,
     CMD_DRAW_PATH = 11,
+    CMD_DRAW_TEXT_BOX = 12,
 };
 
 struct CommandReader {
@@ -408,6 +547,25 @@ bool read_i32(CommandReader *reader, int32_t *out, const char *what) {
 
 bool read_f32(CommandReader *reader, float *out, const char *what) {
     return read_bytes(reader, out, sizeof(*out), what);
+}
+
+bool read_string(CommandReader *reader, int32_t len, std::string *out, const char *what) {
+    if (len < 0) {
+        fail_with_code(EINVAL, "eink_skia_replay_commands: invalid %s length=%d", what, len);
+        return false;
+    }
+    if (static_cast<size_t>(len) > reader->len - reader->offset) {
+        fail_with_code(EINVAL,
+                       "eink_skia_replay_commands: truncated %s at offset=%zu need=%d len=%zu",
+                       what,
+                       reader->offset,
+                       len,
+                       reader->len);
+        return false;
+    }
+    out->assign(reinterpret_cast<const char *>(reader->data + reader->offset), static_cast<size_t>(len));
+    reader->offset += static_cast<size_t>(len);
+    return true;
 }
 
 int replay_set_color(eink_skia_context *context, CommandReader *reader) {
@@ -465,6 +623,49 @@ int replay_path(eink_skia_context *context, CommandReader *reader) {
         builder.close();
     }
     context->canvas->drawPath(builder.detach(), context->paint);
+    return 0;
+}
+
+int replay_text_box(eink_skia_context *context, CommandReader *reader) {
+    int32_t text_len = 0;
+    int32_t family_len = 0;
+    float size = 0.0f;
+    int32_t weight = 0;
+    int32_t slant = 0;
+    float x = 0.0f;
+    float y = 0.0f;
+    float max_width = 0.0f;
+    if (!read_i32(reader, &text_len, "draw-text-box.text-len") ||
+        !read_i32(reader, &family_len, "draw-text-box.family-len") ||
+        !read_f32(reader, &size, "draw-text-box.size") ||
+        !read_i32(reader, &weight, "draw-text-box.weight") ||
+        !read_i32(reader, &slant, "draw-text-box.slant") ||
+        !read_f32(reader, &x, "draw-text-box.x") ||
+        !read_f32(reader, &y, "draw-text-box.y") ||
+        !read_f32(reader, &max_width, "draw-text-box.max-width")) {
+        return -EINVAL;
+    }
+
+    std::string text;
+    std::string family;
+    if (!read_string(reader, text_len, &text, "draw-text-box.text") ||
+        !read_string(reader, family_len, &family, "draw-text-box.family")) {
+        return -EINVAL;
+    }
+
+    auto paragraph = make_paragraph(context,
+                                    "eink_skia_replay_commands",
+                                    text.data(),
+                                    static_cast<int>(text.size()),
+                                    family.empty() ? nullptr : family.c_str(),
+                                    size,
+                                    weight,
+                                    slant,
+                                    max_width);
+    if (!paragraph) {
+        return -EINVAL;
+    }
+    paragraph->paint(context->canvas, x, y);
     return 0;
 }
 
@@ -859,6 +1060,42 @@ int eink_skia_draw_text_box(void *ctx,
     return 0;
 }
 
+int eink_skia_text_cache_stats(void *ctx,
+                               int *out_entries,
+                               int *out_hits,
+                               int *out_misses,
+                               int *out_evictions) {
+    eink_skia_context *context = as_context(ctx, "eink_skia_text_cache_stats");
+    if (context == nullptr) {
+        return -EINVAL;
+    }
+    if (out_entries == nullptr || out_hits == nullptr || out_misses == nullptr || out_evictions == nullptr) {
+        return fail_with_code(EINVAL, "eink_skia_text_cache_stats: output pointer is NULL");
+    }
+
+    *out_entries = static_cast<int>(context->text_cache.size());
+    *out_hits = context->text_cache_hits;
+    *out_misses = context->text_cache_misses;
+    *out_evictions = context->text_cache_evictions;
+    clear_error();
+    return 0;
+}
+
+int eink_skia_clear_text_cache(void *ctx) {
+    eink_skia_context *context = as_context(ctx, "eink_skia_clear_text_cache");
+    if (context == nullptr) {
+        return -EINVAL;
+    }
+
+    context->text_cache.clear();
+    context->text_cache_tick = 0;
+    context->text_cache_hits = 0;
+    context->text_cache_misses = 0;
+    context->text_cache_evictions = 0;
+    clear_error();
+    return 0;
+}
+
 int eink_skia_replay_commands(void *ctx,
                               const unsigned char *commands,
                               size_t command_len,
@@ -991,6 +1228,13 @@ int eink_skia_replay_commands(void *ctx,
 
             case CMD_DRAW_PATH:
                 rv = replay_path(context, &reader);
+                if (rv != 0) {
+                    return rv;
+                }
+                break;
+
+            case CMD_DRAW_TEXT_BOX:
+                rv = replay_text_box(context, &reader);
                 if (rv != 0) {
                     return rv;
                 }

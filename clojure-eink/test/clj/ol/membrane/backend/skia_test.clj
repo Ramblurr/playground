@@ -1,6 +1,7 @@
 (ns ol.membrane.backend.skia-test
   (:require
    [clojure.java.io :as io]
+   [clojure.string]
    [clojure.test :refer [deftest is testing]]
    [membrane.ui :as ui]
    [ol.membrane.backend.skia :as backend])
@@ -30,6 +31,8 @@
    "eink_skia_draw_path"
    "eink_skia_text_bounds"
    "eink_skia_draw_text_box"
+   "eink_skia_text_cache_stats"
+   "eink_skia_clear_text_cache"
    "eink_skia_replay_commands"
    "eink_skia_copy_gray8"
    "eink_skia_present"])
@@ -55,6 +58,8 @@
    :draw-path
    :text-bounds
    :draw-text-box
+   :text-cache-stats
+   :clear-text-cache
    :replay-commands
    :copy-gray8
    :present])
@@ -414,6 +419,40 @@
             (when (not= MemorySegment/NULL ctx)
               (is (= 0 (destroy-ctx native ctx))))))))))
 
+(deftest native-text-cache-stats-test
+  (with-test-native-and-fonts [native font-dir]
+    (testing "native text bounds and drawing reuse cached SkParagraph layouts"
+      (let [stats-fn (some-> (ns-resolve 'ol.membrane.backend.skia 'text-cache-stats) deref)]
+        (is (fn? stats-fn))
+        (is (contains? native :clear-text-cache))
+        (when (and stats-fn (:clear-text-cache native))
+          (let [ctx (create-ctx native 180 96 font-dir "Noto Sans")]
+            (try
+              (is (not= MemorySegment/NULL ctx))
+              (when (not= MemorySegment/NULL ctx)
+                (is (= 0 (backend/invoke-native (:clear-text-cache native) ctx)))
+                (is (= {:entries   0
+                        :hits      0
+                        :misses    0
+                        :evictions 0}
+                       (stats-fn {:native native :skia-context ctx})))
+                (is (= 0 (backend/invoke-native (:set-color native) ctx (float 0.0) (float 0.0) (float 0.0) (float 1.0))))
+                (is (= 0 (:rv (text-bounds native ctx "Cache me" "Noto Sans" 18 400 0 120))))
+                (is (= {:entries   1
+                        :hits      0
+                        :misses    1
+                        :evictions 0}
+                       (stats-fn {:native native :skia-context ctx})))
+                (is (= 0 (draw-text-box native ctx "Cache me" "Noto Sans" 18 400 0 4 4 120)))
+                (is (= {:entries   1
+                        :hits      1
+                        :misses    1
+                        :evictions 0}
+                       (stats-fn {:native native :skia-context ctx}))))
+              (finally
+                (when (not= MemorySegment/NULL ctx)
+                  (is (= 0 (destroy-ctx native ctx))))))))))))
+
 (deftest native-present-rejects-invalid-geometry-before-fbink-test
   (with-test-native-and-fonts [native _font-dir]
     (testing "present validates the native Skia context geometry before touching FBInk"
@@ -451,7 +490,9 @@
     render-frame-batched!
     render-view!
     paragraph
-    paragraph-bounds])
+    paragraph-bounds
+    text-cache-stats
+    clear-text-cache!])
 
 (defn- backend-var
   [sym]
@@ -500,6 +541,14 @@
 (deftest skia-backend-high-level-api-test
   (testing "Skia backend exposes the high-level rendering API for Membrane values"
     (is (= [] (missing-high-level-vars)))))
+
+(deftest skia-backend-label-bounds-fallback-does-not-require-java2d-test
+  (testing "Skia label bounds fallback is local to the Skia backend"
+    (is (not (clojure.string/includes? (slurp "src/clj/ol/membrane/backend/skia.clj")
+                                        "ol.membrane.backend.java2d")))
+    (let [[w h] (ui/bounds (ui/label "Fallback" (ui/font "Noto Sans" 12)))]
+      (is (pos? w))
+      (is (pos? h)))))
 
 (deftest skia-render-frame-draws-membrane-primitives-test
   (with-test-native-and-fonts [_native font-dir]
@@ -555,6 +604,34 @@
           (finally
             (backend-call 'close-context! context-direct)
             (backend-call 'close-context! context-batch)))))))
+
+(deftest skia-render-frame-batched-keeps-text-in-command-stream-test
+  (with-test-native-and-fonts [_native font-dir]
+    (if-let [missing (seq (missing-high-level-vars))]
+      (is (= [] (vec missing)))
+      (let [context (backend-call 'open-context!
+                                  {:native-lib     (skia-native-lib)
+                                   :font-dir       font-dir
+                                   :default-family "Noto Sans"
+                                   :width          160
+                                   :height         80})]
+        (try
+          (let [elem         [(ui/with-color [1 1 1]
+                                (ui/rectangle 160 80))
+                              (ui/with-color [0 0 0]
+                                (ui/translate 4 24
+                                              (ui/label "Batched text" (ui/font "Noto Sans" 18)))
+                                (ui/translate 4 44
+                                              (ui/rectangle 24 12)))]
+                batch-result (backend-call 'render-frame-batched! context elem {:skia-batch-text? true})]
+            (is (= {:flushes    1
+                    :text-calls 1
+                    :dark?      true}
+                   {:flushes    (get-in batch-result [:skia-batch :flushes])
+                    :text-calls (get-in batch-result [:skia-batch :text-calls])
+                    :dark?      (boolean (some dark-byte? (:data (:gray batch-result))))})))
+          (finally
+            (backend-call 'close-context! context)))))))
 
 (deftest skia-render-frame-batched-handles-negative-transforms-test
   (with-test-native-and-fonts [_native font-dir]
@@ -616,6 +693,7 @@
             (is (some dark-byte? (:data gray))))
           (finally
             (backend-call 'close-context! context)))))))
+
 
 (deftest skia-render-frame-repeated-stable-dimensions-test
   (with-test-native-and-fonts [_native font-dir]

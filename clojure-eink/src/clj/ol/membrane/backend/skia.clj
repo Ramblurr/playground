@@ -2,8 +2,7 @@
   (:require
    [clojure.java.io :as io]
    [clojure.string :as str]
-   [membrane.ui :as ui]
-   [ol.membrane.backend.java2d :as java2d-backend])
+   [membrane.ui :as ui])
   (:import
    [java.io ByteArrayOutputStream]
    [java.lang.foreign Arena FunctionDescriptor Linker Linker$Option MemoryLayout MemorySegment SymbolLookup ValueLayout]
@@ -55,6 +54,8 @@
    {:key :draw-path :symbol "eink_skia_draw_path" :return int-layout :args [address-layout address-layout int-layout int-layout]}
    {:key :text-bounds :symbol "eink_skia_text_bounds" :return int-layout :args [address-layout address-layout int-layout address-layout float-layout int-layout int-layout float-layout address-layout address-layout address-layout address-layout address-layout]}
    {:key :draw-text-box :symbol "eink_skia_draw_text_box" :return int-layout :args [address-layout address-layout int-layout address-layout float-layout int-layout int-layout float-layout float-layout float-layout]}
+   {:key :text-cache-stats :symbol "eink_skia_text_cache_stats" :return int-layout :args [address-layout address-layout address-layout address-layout address-layout]}
+   {:key :clear-text-cache :symbol "eink_skia_clear_text_cache" :return int-layout :args [address-layout]}
    {:key :replay-commands :symbol "eink_skia_replay_commands" :return int-layout :args [address-layout address-layout size-t-layout int-layout]}
    {:key :copy-gray8 :symbol "eink_skia_copy_gray8" :return int-layout :args [address-layout address-layout size-t-layout]}
    {:key :present :symbol "eink_skia_present" :return int-layout :args [address-layout int-layout int-layout int-layout int-layout int-layout int-layout int-layout]}])
@@ -157,11 +158,13 @@
 (def ^:dynamic *style* :membrane.ui/style-fill)
 (def ^:dynamic *stroke-width* 1.0)
 (def ^:dynamic *command-batch* nil)
+(def ^:dynamic *batch-text?* false)
 
 (def style->native
   {:membrane.ui/style-fill            0
    :membrane.ui/style-stroke          1
    :membrane.ui/style-stroke-and-fill 2})
+
 
 (def waveforms
   {:auto 0
@@ -250,7 +253,8 @@
    :set-stroke-width 8
    :draw-rect        9
    :draw-round-rect  10
-   :draw-path        11})
+   :draw-path        11
+   :draw-text-box    12})
 
 (defn- new-command-batch
   []
@@ -274,6 +278,10 @@
 (defn- write-f32-le!
   [^ByteArrayOutputStream out value]
   (write-i32-le! out (Float/floatToIntBits (float value))))
+
+(defn- utf8-bytes
+  [value]
+  (.getBytes (str value) StandardCharsets/UTF_8))
 
 (defn- bump-command-count!
   [batch]
@@ -340,6 +348,26 @@
   (doseq [[x y] points]
     (write-f32-le! (:out batch) x)
     (write-f32-le! (:out batch) y)))
+
+(declare font-family font-size font-weight font-slant)
+
+(defn- append-text-command!
+  [batch text font x y max-width]
+  (let [text-bytes   (utf8-bytes text)
+        family       (or (font-family font) "")
+        family-bytes (utf8-bytes family)
+        out          (:out batch)]
+    (append-simple-command! batch :draw-text-box)
+    (write-i32-le! out (alength text-bytes))
+    (write-i32-le! out (alength family-bytes))
+    (write-f32-le! out (font-size font))
+    (write-i32-le! out (font-weight font))
+    (write-i32-le! out (font-slant font))
+    (write-f32-le! out x)
+    (write-f32-le! out y)
+    (write-f32-le! out max-width)
+    (.write out text-bytes 0 (alength text-bytes))
+    (.write out family-bytes 0 (alength family-bytes))))
 
 (defn- command-batch-stats
   [batch]
@@ -415,6 +443,12 @@
          :oblique 2
          0)))
 
+(defn- approximate-text-bounds
+  [font text]
+  (let [size (double (or (:size font) (:size ui/default-font)))]
+    [(* 0.58 size (count (str text)))
+     (* 1.35 size)]))
+
 (defn- normalized-color
   [[r g b a]]
   [(float (or r 0.0))
@@ -482,31 +516,62 @@
    (let [{:keys [width height]} (text-metrics context font text max-width)]
      [(double width) (double height)])))
 
+(defn text-cache-stats
+  [context]
+  (with-open [arena (Arena/ofConfined)]
+    (let [entries-seg   (.allocate arena (long 4) 4)
+          hits-seg      (.allocate arena (long 4) 4)
+          misses-seg    (.allocate arena (long 4) 4)
+          evictions-seg (.allocate arena (long 4) 4)]
+      (check-native! context
+                     (invoke-native (:text-cache-stats (:native context))
+                                    (:skia-context context)
+                                    entries-seg
+                                    hits-seg
+                                    misses-seg
+                                    evictions-seg)
+                     "text-cache-stats")
+      {:entries   (.get entries-seg ValueLayout/JAVA_INT 0)
+       :hits      (.get hits-seg ValueLayout/JAVA_INT 0)
+       :misses    (.get misses-seg ValueLayout/JAVA_INT 0)
+       :evictions (.get evictions-seg ValueLayout/JAVA_INT 0)})))
+
+(defn clear-text-cache!
+  [context]
+  (native-call! context :clear-text-cache)
+  nil)
+
 (defn paragraph-bounds
   [context {:keys [text font width]}]
   (text-bounds context font text width))
 
 (defn- draw-text-box!
   [context text font x y max-width]
-  (flush-batch! context)
-  (when *command-batch*
-    (vswap! (:text-calls *command-batch*) inc))
-  (with-open [arena (Arena/ofConfined)]
-    (let [text'      (str text)
-          text-bytes (.getBytes text' StandardCharsets/UTF_8)]
-      (check-native! context
-                     (invoke-native (:draw-text-box (:native context))
-                                    (:skia-context context)
-                                    (c-string arena text')
-                                    (int (alength text-bytes))
-                                    (c-string arena (font-family font))
-                                    (font-size font)
-                                    (font-weight font)
-                                    (font-slant font)
-                                    (float x)
-                                    (float y)
-                                    (float max-width))
-                     "draw-text-box"))))
+  (if (and *command-batch* *batch-text?*)
+    (do
+      (append-text-command! *command-batch* text font (float x) (float y) (float max-width))
+      (vswap! (:text-calls *command-batch*) inc)
+      0)
+    (do
+      (flush-batch! context)
+      (when *command-batch*
+        (vswap! (:text-calls *command-batch*) inc))
+      (with-open [arena (Arena/ofConfined)]
+        (let [text'      (str text)
+              text-bytes (utf8-bytes text')]
+          (check-native! context
+                         (invoke-native (:draw-text-box (:native context))
+                                        (:skia-context context)
+                                        (c-string arena text')
+                                        (int (alength text-bytes))
+                                        (c-string arena (font-family font))
+                                        (font-size font)
+                                        (font-weight font)
+                                        (font-slant font)
+                                        (float x)
+                                        (float y)
+                                        (float max-width))
+                         "draw-text-box"))))))
 
 (defn copy-gray8
   [context]
@@ -569,7 +634,7 @@
   (-bounds [this]
     (if *context*
       (text-bounds *context* (:font this) (:text this))
-      (java2d-backend/text-bounds (:font this) (:text this))))
+      (approximate-text-bounds (:font this) (:text this))))
 
   IDraw
   (draw [this]
@@ -711,7 +776,8 @@
                                             *color*         [0 0 0 1]
                                             *style*         :membrane.ui/style-fill
                                             *stroke-width*  1.0
-                                            *command-batch* nil]
+                                            *command-batch* nil
+                                            *batch-text?*   false]
                                     (set-color! context *color*)
                                     (set-style! context *style*)
                                     (set-stroke-width! context *stroke-width*)
@@ -732,7 +798,8 @@
                                             *color*         [0 0 0 1]
                                             *style*         :membrane.ui/style-fill
                                             *stroke-width*  1.0
-                                            *command-batch* batch]
+                                            *command-batch* batch
+                                            *batch-text?*   (true? (:skia-batch-text? opts))]
                                     (set-color! context *color*)
                                     (set-style! context *style*)
                                     (set-stroke-width! context *stroke-width*)
