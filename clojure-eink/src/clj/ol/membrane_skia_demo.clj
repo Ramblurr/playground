@@ -111,5 +111,5 @@
     (if (:help? opts)
       (do
         (println (project/usage))
-        (println "Skia Membrane demo options: set EINK_SKIA_NATIVE_LIB and EINK_FONT_DIR; use --present/--no-present --width N --height N --no-wait --no-flash"))
+        (println "Skia Membrane demo options: set EINK_SKIA_NATIVE_LIB and EINK_FONT_DIR; use --present/--no-present --width N --height N --skia-batch --no-skia-batch --no-wait --no-flash"))
       (run-once! opts))))

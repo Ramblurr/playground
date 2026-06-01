@@ -14,9 +14,13 @@ Long-lived reload loop:
 
   ./run-loop.sh --render-mode cached-layout --reuse-image --no-wait --no-flash
 
-Membrane Skia render proof:
+Membrane Skia render proof (production AOT classpath):
 
   ./run-membrane-skia-demo.sh --no-wait --no-flash
+
+Source-loaded Skia render proof for development comparisons:
+
+  ./run-membrane-skia-demo-source.sh --no-wait --no-flash
 
 Membrane Java2D FBInk render proof:
 

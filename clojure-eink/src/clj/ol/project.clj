@@ -537,7 +537,8 @@
    :reuse-image? false
    :waveform     :gc16
    :flash?       true
-   :wait?        true})
+   :wait?        true
+   :skia-batch?  false})
 
 (defn parse-args
   ([args]
@@ -567,6 +568,8 @@
            "--waveform" (recur (assoc opts :waveform (keyword (str/lower-case (option-value arg (first more))))) (next more))
            "--no-flash" (recur (assoc opts :flash? false) more)
            "--no-wait" (recur (assoc opts :wait? false) more)
+           "--skia-batch" (recur (assoc opts :skia-batch? true) more)
+           "--no-skia-batch" (recur (assoc opts :skia-batch? false) more)
            "--help" (recur (assoc opts :help? true) more)
            (if (str/starts-with? arg "--")
              (throw (ex-info (str "unknown option: " arg) {:arg arg}))
@@ -581,7 +584,8 @@
        "Options: --text TEXT --width N --height N --renders N --repeat N "
        "--render-mode layout|cached-layout|simple-text|rects --reuse-image "
        "--present --no-present --present-last --present-each "
-       "--waveform auto|du|gc16|gl16|a2 --no-flash --no-wait"))
+       "--waveform auto|du|gc16|gl16|a2 --no-flash --no-wait "
+       "--skia-batch --no-skia-batch"))
 
 (defn- should-present-iteration?
   [present-mode iteration total-renders]

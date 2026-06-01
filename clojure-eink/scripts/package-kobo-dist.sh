@@ -7,6 +7,7 @@ DIST_TEMPLATE="$ROOT/resources/kobo-dist"
 KOBO_NATIVE_RESULT=${KOBO_NATIVE_RESULT:-$ROOT/result-kobo-native}
 KOBO_SKIA_NATIVE_RESULT=${KOBO_SKIA_NATIVE_RESULT:-$ROOT/result-kobo-skia-native}
 JAR_NAME="clojure-eink-demo.jar"
+AOT_JAR_NAME="clojure-eink-demo-aot.jar"
 
 cd "$ROOT"
 
@@ -38,19 +39,22 @@ copy_nix_runtime_libs() {
 
 chmod -R u+w "$DIST" 2>/dev/null || true
 rm -rf "$DIST"
-rm -rf "$ROOT/target/classes"
+rm -rf "$ROOT/target/classes" "$ROOT/target/aot"
+rm -f "$ROOT"/target/*.jar
 clojure -T:build jar
+clojure -T:build aot-jar
 
 mkdir -p "$DIST"
 cp -R "$DIST_TEMPLATE"/. "$DIST/"
 mkdir -p "$DIST/lib" "$DIST/lib/java" "$DIST/src"
 
-jar_path=$(find "$ROOT/target" -maxdepth 1 -type f -name '*.jar' -print | sort | head -n 1)
+jar_path=$(find "$ROOT/target" -maxdepth 1 -type f -name '*.jar' ! -name "$AOT_JAR_NAME" -print | sort | head -n 1)
 if [[ -z "${jar_path:-}" ]]; then
   echo "No jar found under target/." >&2
   exit 1
 fi
 cp "$jar_path" "$DIST/$JAR_NAME"
+cp "$ROOT/target/$AOT_JAR_NAME" "$DIST/$AOT_JAR_NAME"
 
 if [[ -d "$KOBO_NATIVE_RESULT/lib" ]]; then
   cp -P "$KOBO_NATIVE_RESULT"/lib/libclojure_eink.so "$DIST/lib/"

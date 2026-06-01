@@ -13,7 +13,8 @@
    "run-png-smoke.sh"
    "run-membrane-demo.sh"
    "run-membrane-loop.sh"
-   "run-membrane-skia-demo.sh"])
+   "run-membrane-skia-demo.sh"
+   "run-membrane-skia-demo-source.sh"])
 
 (def expected-runtime-scripts
   (remove #{"README-KOBO.txt"} expected-dist-template-files))
@@ -99,6 +100,18 @@
                                                          (str/includes? script "clojure -Spath"))
               :runtime-classpath-moved-to-template? (not (str/includes? script "$APP_DIR/lib/java/*"))})))))
 
+(deftest package-script-builds-and-ships-aot-runtime-test
+  (testing "package script builds and copies the production AOT jar"
+    (let [script (slurp "scripts/package-kobo-dist.sh")]
+      (is (= {:declares-aot-jar?          true
+              :builds-aot-jar?            true
+              :copies-aot-jar?            true
+              :uses-uncompressed-aot-jar? true}
+             {:declares-aot-jar?          (str/includes? script "AOT_JAR_NAME=\"clojure-eink-demo-aot.jar\"")
+              :builds-aot-jar?            (str/includes? script "clojure -T:build aot-jar")
+              :copies-aot-jar?            (str/includes? script "cp \"$ROOT/target/$AOT_JAR_NAME\" \"$DIST/$AOT_JAR_NAME\"")
+              :uses-uncompressed-aot-jar? (str/includes? (slurp "build.clj") "jar c0f")})))))
+
 (deftest package-script-ships-skia-demo-runtime-test
   (testing "generated Kobo dist includes the separate Skia demo runtime pieces"
     (let [script           (slurp "scripts/package-kobo-dist.sh")
@@ -141,6 +154,31 @@
                                                              "export LD_LIBRARY_PATH=\"$APP_DIR/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}\"")
               :runs-skia-demo-main?           (str/includes? skia-demo-script
                                                              "clojure.main -m ol.membrane-skia-demo --present \"$@\"")})))))
+
+(deftest production-skia-script-uses-aot-classpath-test
+  (testing "production Skia runtime uses the AOT jar without src/clj"
+    (let [skia-demo-script (template-text "run-membrane-skia-demo.sh")]
+      (is (= {:uses-aot-jar?        true
+              :omits-source-path?   true
+              :runs-skia-demo-main? true}
+             {:uses-aot-jar?        (str/includes? skia-demo-script
+                                                   "-cp \"$APP_DIR/clojure-eink-demo-aot.jar:$APP_DIR/lib/java/*:$CLOJURE_JAR\"")
+              :omits-source-path?   (not (str/includes? skia-demo-script "$APP_DIR/src/clj"))
+              :runs-skia-demo-main? (str/includes? skia-demo-script
+                                                   "clojure.main -m ol.membrane-skia-demo --present \"$@\"")})))))
+
+(deftest source-skia-script-preserves-source-classpath-test
+  (testing "source Skia runtime remains available for source-based workflows"
+    (let [skia-source-script (template-text "run-membrane-skia-demo-source.sh")]
+      (is (= {:script-present?      true
+              :uses-source-path?    true
+              :uses-source-app-jar? true
+              :runs-skia-demo-main? true}
+             {:script-present?      (boolean (seq skia-source-script))
+              :uses-source-path?    (str/includes? skia-source-script "$APP_DIR/src/clj")
+              :uses-source-app-jar? (str/includes? skia-source-script "$APP_DIR/clojure-eink-demo.jar")
+              :runs-skia-demo-main? (str/includes? skia-source-script
+                                                   "clojure.main -m ol.membrane-skia-demo --present \"$@\"")})))))
 
 (deftest java2d-membrane-script-stays-on-old-native-env-test
   (testing "existing Java2D Membrane script does not depend on Skia env vars"

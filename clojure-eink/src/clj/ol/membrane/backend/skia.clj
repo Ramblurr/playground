@@ -5,6 +5,7 @@
    [membrane.ui :as ui]
    [ol.membrane.backend.java2d :as java2d-backend])
   (:import
+   [java.io ByteArrayOutputStream]
    [java.lang.foreign Arena FunctionDescriptor Linker Linker$Option MemoryLayout MemorySegment SymbolLookup ValueLayout]
    [java.lang.invoke MethodHandle]
    [java.nio.charset StandardCharsets]
@@ -54,6 +55,7 @@
    {:key :draw-path :symbol "eink_skia_draw_path" :return int-layout :args [address-layout address-layout int-layout int-layout]}
    {:key :text-bounds :symbol "eink_skia_text_bounds" :return int-layout :args [address-layout address-layout int-layout address-layout float-layout int-layout int-layout float-layout address-layout address-layout address-layout address-layout address-layout]}
    {:key :draw-text-box :symbol "eink_skia_draw_text_box" :return int-layout :args [address-layout address-layout int-layout address-layout float-layout int-layout int-layout float-layout float-layout float-layout]}
+   {:key :replay-commands :symbol "eink_skia_replay_commands" :return int-layout :args [address-layout address-layout size-t-layout int-layout]}
    {:key :copy-gray8 :symbol "eink_skia_copy_gray8" :return int-layout :args [address-layout address-layout size-t-layout]}
    {:key :present :symbol "eink_skia_present" :return int-layout :args [address-layout int-layout int-layout int-layout int-layout int-layout int-layout int-layout]}])
 
@@ -154,6 +156,7 @@
 (def ^:dynamic *color* [0 0 0 1])
 (def ^:dynamic *style* :membrane.ui/style-fill)
 (def ^:dynamic *stroke-width* 1.0)
+(def ^:dynamic *command-batch* nil)
 
 (def style->native
   {:membrane.ui/style-fill            0
@@ -236,6 +239,146 @@
                  (apply invoke-native (get-in context [:native key]) (:skia-context context) args)
                  (name key)))
 
+(def ^:private command-opcodes
+  {:save             1
+   :restore          2
+   :translate        3
+   :scale            4
+   :clip-rect        5
+   :set-color        6
+   :set-style        7
+   :set-stroke-width 8
+   :draw-rect        9
+   :draw-round-rect  10
+   :draw-path        11})
+
+(defn- new-command-batch
+  []
+  {:out           (ByteArrayOutputStream. 4096)
+   :pending-count (volatile! 0)
+   :flushes       (volatile! 0)
+   :commands      (volatile! 0)
+   :bytes         (volatile! 0)
+   :text-calls    (volatile! 0)})
+
+(defn- write-u8!
+  [^ByteArrayOutputStream out value]
+  (.write out (unchecked-int (bit-and (long value) 0xFF))))
+
+(defn- write-i32-le!
+  [^ByteArrayOutputStream out value]
+  (let [n (long value)]
+    (dotimes [shift 4]
+      (write-u8! out (bit-shift-right n (* shift 8))))))
+
+(defn- write-f32-le!
+  [^ByteArrayOutputStream out value]
+  (write-i32-le! out (Float/floatToIntBits (float value))))
+
+(defn- bump-command-count!
+  [batch]
+  (vswap! (:pending-count batch) inc)
+  (vswap! (:commands batch) inc))
+
+(defn- append-simple-command!
+  [batch op]
+  (write-u8! (:out batch) (command-opcodes op))
+  (bump-command-count! batch))
+
+(defn- append-command!
+  [batch op args]
+  (case op
+    (:save :restore)
+    (append-simple-command! batch op)
+
+    (:translate :scale)
+    (let [[x y] args]
+      (append-simple-command! batch op)
+      (write-f32-le! (:out batch) x)
+      (write-f32-le! (:out batch) y))
+
+    (:clip-rect :draw-rect)
+    (let [[x y width height] args]
+      (append-simple-command! batch op)
+      (write-f32-le! (:out batch) x)
+      (write-f32-le! (:out batch) y)
+      (write-f32-le! (:out batch) width)
+      (write-f32-le! (:out batch) height))
+
+    :set-color
+    (let [[r g b a] args]
+      (append-simple-command! batch op)
+      (write-f32-le! (:out batch) r)
+      (write-f32-le! (:out batch) g)
+      (write-f32-le! (:out batch) b)
+      (write-f32-le! (:out batch) a))
+
+    :set-style
+    (let [[style] args]
+      (append-simple-command! batch op)
+      (write-i32-le! (:out batch) style))
+
+    :set-stroke-width
+    (let [[width] args]
+      (append-simple-command! batch op)
+      (write-f32-le! (:out batch) width))
+
+    :draw-round-rect
+    (let [[x y width height radius] args]
+      (append-simple-command! batch op)
+      (write-f32-le! (:out batch) x)
+      (write-f32-le! (:out batch) y)
+      (write-f32-le! (:out batch) width)
+      (write-f32-le! (:out batch) height)
+      (write-f32-le! (:out batch) radius))))
+
+(defn- append-path-command!
+  [batch points closed?]
+  (append-simple-command! batch :draw-path)
+  (write-i32-le! (:out batch) (count points))
+  (write-i32-le! (:out batch) (if closed? 1 0))
+  (doseq [[x y] points]
+    (write-f32-le! (:out batch) x)
+    (write-f32-le! (:out batch) y)))
+
+(defn- command-batch-stats
+  [batch]
+  {:flushes    @(:flushes batch)
+   :commands   @(:commands batch)
+   :bytes      @(:bytes batch)
+   :text-calls @(:text-calls batch)})
+
+(defn- flush-batch!
+  [context]
+  (when-let [batch *command-batch*]
+    (let [^ByteArrayOutputStream out (:out batch)
+          command-count             @(:pending-count batch)
+          byte-count                (.size out)]
+      (when (pos? byte-count)
+        (let [bytes (.toByteArray out)]
+          (with-open [arena (Arena/ofConfined)]
+            (let [segment (.allocate arena (long byte-count) 1)]
+              (MemorySegment/copy bytes 0 segment ValueLayout/JAVA_BYTE 0 byte-count)
+              (check-native! context
+                             (invoke-native (:replay-commands (:native context))
+                                            (:skia-context context)
+                                            segment
+                                            (size-t byte-count)
+                                            (int command-count))
+                             "replay-commands"))))
+        (vswap! (:flushes batch) inc)
+        (vswap! (:bytes batch) + byte-count)
+        (.reset out)
+        (vreset! (:pending-count batch) 0)))))
+
+(defn- canvas-command!
+  [context op & args]
+  (if *command-batch*
+    (do
+      (append-command! *command-batch* op args)
+      0)
+    (apply native-call! context op args)))
+
 (defn- require-context
   []
   (or *context*
@@ -282,23 +425,23 @@
 (defn- set-color!
   [context color]
   (let [[r g b a] (normalized-color color)]
-    (native-call! context :set-color r g b a)))
+    (canvas-command! context :set-color r g b a)))
 
 (defn- set-style!
   [context style]
-  (native-call! context :set-style (int (get style->native style 0))))
+  (canvas-command! context :set-style (int (get style->native style 0))))
 
 (defn- set-stroke-width!
   [context width]
-  (native-call! context :set-stroke-width (float width)))
+  (canvas-command! context :set-stroke-width (float width)))
 
 (defn- with-saved-canvas*
   [context f]
-  (native-call! context :save)
+  (canvas-command! context :save)
   (try
     (f)
     (finally
-      (native-call! context :restore))))
+      (canvas-command! context :restore))))
 
 (defn text-metrics
   [context font text max-width]
@@ -345,6 +488,9 @@
 
 (defn- draw-text-box!
   [context text font x y max-width]
+  (flush-batch! context)
+  (when *command-batch*
+    (vswap! (:text-calls *command-batch*) inc))
   (with-open [arena (Arena/ofConfined)]
     (let [text'      (str text)
           text-bytes (.getBytes text' StandardCharsets/UTF_8)]
@@ -443,7 +589,7 @@
       (with-saved-canvas*
         context
         (fn []
-          (native-call! context :translate (float (:x this)) (float (:y this)))
+          (canvas-command! context :translate (float (:x this)) (float (:y this)))
           (draw (:drawable this)))))))
 
 (extend-type membrane.ui.WithColor
@@ -492,36 +638,38 @@
   IDraw
   (draw [this]
     (when-let [points (seq (:points this))]
-      (let [context (require-context)
-            values  (mapcat identity points)]
-        (with-open [arena (Arena/ofConfined)]
-          (let [segment (.allocate arena (long (* 4 (count values))) 4)]
-            (doseq [[idx value] (map-indexed vector values)]
-              (.set segment ValueLayout/JAVA_FLOAT (long (* idx 4)) (float value)))
-            (native-call! context :draw-path segment (int (count points)) (int 0))))))))
+      (let [context (require-context)]
+        (if *command-batch*
+          (append-path-command! *command-batch* points false)
+          (let [values (mapcat identity points)]
+            (with-open [arena (Arena/ofConfined)]
+              (let [segment (.allocate arena (long (* 4 (count values))) 4)]
+                (doseq [[idx value] (map-indexed vector values)]
+                  (.set segment ValueLayout/JAVA_FLOAT (long (* idx 4)) (float value)))
+                (native-call! context :draw-path segment (int (count points)) (int 0))))))))))
 
 (extend-type membrane.ui.Rectangle
   IDraw
   (draw [this]
     (let [context (require-context)]
-      (native-call! context
-                    :draw-rect
-                    (float 0.0)
-                    (float 0.0)
-                    (float (:width this))
-                    (float (:height this))))))
+      (canvas-command! context
+                       :draw-rect
+                       (float 0.0)
+                       (float 0.0)
+                       (float (:width this))
+                       (float (:height this))))))
 
 (extend-type membrane.ui.RoundedRectangle
   IDraw
   (draw [this]
     (let [context (require-context)]
-      (native-call! context
-                    :draw-round-rect
-                    (float 0.0)
-                    (float 0.0)
-                    (float (:width this))
-                    (float (:height this))
-                    (float (:border-radius this))))))
+      (canvas-command! context
+                       :draw-round-rect
+                       (float 0.0)
+                       (float 0.0)
+                       (float (:width this))
+                       (float (:height this))
+                       (float (:border-radius this))))))
 
 (extend-type membrane.ui.Scale
   IDraw
@@ -531,7 +679,7 @@
       (with-saved-canvas*
         context
         (fn []
-          (native-call! context :scale (float sx) (float sy))
+          (canvas-command! context :scale (float sx) (float sy))
           (doseq [drawable (:drawables this)]
             (draw drawable)))))))
 
@@ -544,7 +692,7 @@
       (with-saved-canvas*
         context
         (fn []
-          (native-call! context :clip-rect (float ox) (float oy) (float w) (float h))
+          (canvas-command! context :clip-rect (float ox) (float oy) (float w) (float h))
           (draw (:drawable this)))))))
 
 (extend-type membrane.ui.ScrollView
@@ -555,14 +703,15 @@
                            (let [[x y] (:offset this)]
                              (ui/translate x y (:drawable this)))))))
 
-(defn render-frame!
+(defn- render-frame-direct!
   [context elem opts]
   (let [clear-gray        (int (or (:clear-gray opts) 255))
         [_clear clear-ms] (timed #(native-call! context :clear (unchecked-byte clear-gray)))
-        [_draw draw-ms]   (timed #(binding [*context*      context
-                                            *color*        [0 0 0 1]
-                                            *style*        :membrane.ui/style-fill
-                                            *stroke-width* 1.0]
+        [_draw draw-ms]   (timed #(binding [*context*       context
+                                            *color*         [0 0 0 1]
+                                            *style*         :membrane.ui/style-fill
+                                            *stroke-width*  1.0
+                                            *command-batch* nil]
                                     (set-color! context *color*)
                                     (set-style! context *style*)
                                     (set-stroke-width! context *stroke-width*)
@@ -573,6 +722,35 @@
      :timings {:clear      clear-ms
                :draw       draw-ms
                :copy-gray8 copy-ms}}))
+
+(defn render-frame-batched!
+  [context elem opts]
+  (let [batch             (new-command-batch)
+        clear-gray        (int (or (:clear-gray opts) 255))
+        [_clear clear-ms] (timed #(native-call! context :clear (unchecked-byte clear-gray)))
+        [_draw draw-ms]   (timed #(binding [*context*       context
+                                            *color*         [0 0 0 1]
+                                            *style*         :membrane.ui/style-fill
+                                            *stroke-width*  1.0
+                                            *command-batch* batch]
+                                    (set-color! context *color*)
+                                    (set-style! context *style*)
+                                    (set-stroke-width! context *stroke-width*)
+                                    (draw elem)
+                                    (flush-batch! context)))
+        [gray copy-ms]    (timed #(copy-gray8 context))]
+    (swap! (:render-count context) inc)
+    {:gray       gray
+     :skia-batch (command-batch-stats batch)
+     :timings    {:clear      clear-ms
+                  :draw       draw-ms
+                  :copy-gray8 copy-ms}}))
+
+(defn render-frame!
+  [context elem opts]
+  (if (:skia-batch? opts)
+    (render-frame-batched! context elem opts)
+    (render-frame-direct! context elem opts)))
 
 (defn present-frame!
   [context elem opts]

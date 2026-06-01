@@ -30,6 +30,7 @@
    "eink_skia_draw_path"
    "eink_skia_text_bounds"
    "eink_skia_draw_text_box"
+   "eink_skia_replay_commands"
    "eink_skia_copy_gray8"
    "eink_skia_present"])
 
@@ -54,6 +55,7 @@
    :draw-path
    :text-bounds
    :draw-text-box
+   :replay-commands
    :copy-gray8
    :present])
 
@@ -446,6 +448,7 @@
   '[open-context!
     close-context!
     render-frame!
+    render-frame-batched!
     render-view!
     paragraph
     paragraph-bounds])
@@ -516,6 +519,66 @@
                    (select-keys gray [:width :height :stride])))
             (is (some dark-byte? (:data gray)))
             (is (= 1 @(:render-count context))))
+          (finally
+            (backend-call 'close-context! context)))))))
+
+(deftest skia-render-frame-batched-matches-direct-primitives-test
+  (with-test-native-and-fonts [_native font-dir]
+    (if-let [missing (seq (missing-high-level-vars))]
+      (is (= [] (vec missing)))
+      (let [context-direct (backend-call 'open-context!
+                                         {:native-lib     (skia-native-lib)
+                                          :font-dir       font-dir
+                                          :default-family "Noto Sans"
+                                          :width          220
+                                          :height         140})
+            context-batch  (backend-call 'open-context!
+                                         {:native-lib     (skia-native-lib)
+                                          :font-dir       font-dir
+                                          :default-family "Noto Sans"
+                                          :width          220
+                                          :height         140})]
+        (try
+          (let [elem          (primitive-demo-elem)
+                direct-result (backend-call 'render-frame! context-direct elem {})
+                batch-result  (backend-call 'render-frame-batched! context-batch elem {})]
+            (is (= {:same-geometry? true
+                    :same-pixels?   true
+                    :render-counts  [1 1]
+                    :batch-used?    true}
+                   {:same-geometry? (= (select-keys (:gray direct-result) [:width :height :stride])
+                                      (select-keys (:gray batch-result) [:width :height :stride]))
+                    :same-pixels?   (= (vec (:data (:gray direct-result)))
+                                      (vec (:data (:gray batch-result))))
+                    :render-counts  [@(:render-count context-direct) @(:render-count context-batch)]
+                    :batch-used?    (pos? (get-in batch-result [:skia-batch :commands] 0))})))
+          (finally
+            (backend-call 'close-context! context-direct)
+            (backend-call 'close-context! context-batch)))))))
+
+(deftest skia-render-frame-batched-handles-negative-transforms-test
+  (with-test-native-and-fonts [_native font-dir]
+    (if-let [missing (seq (missing-high-level-vars))]
+      (is (= [] (vec missing)))
+      (let [context (backend-call 'open-context!
+                                  {:native-lib     (skia-native-lib)
+                                   :font-dir       font-dir
+                                   :default-family "Noto Sans"
+                                   :width          32
+                                   :height         24})]
+        (try
+          (let [elem         [(ui/with-color [1 1 1]
+                                (ui/rectangle 32 24))
+                              (ui/with-color [0 0 0]
+                                (ui/translate -4 -3
+                                              (ui/rectangle 16 12)))]
+                batch-result (backend-call 'render-frame-batched! context elem {})]
+            (is (= {:geometry  {:width 32 :height 24 :stride 32}
+                    :rendered? true
+                    :batch?    true}
+                   {:geometry  (select-keys (:gray batch-result) [:width :height :stride])
+                    :rendered? (some dark-byte? (:data (:gray batch-result)))
+                    :batch?    (pos? (get-in batch-result [:skia-batch :commands] 0))})))
           (finally
             (backend-call 'close-context! context)))))))
 

@@ -61,6 +61,11 @@ int eink_skia_draw_text_box(void *ctx,
                             float y,
                             float max_width);
 
+int eink_skia_replay_commands(void *ctx,
+                              const unsigned char *commands,
+                              size_t command_len,
+                              int command_count);
+
 int eink_skia_copy_gray8(void *ctx, unsigned char *dst, size_t dst_len);
 
 int eink_skia_present(void *ctx,

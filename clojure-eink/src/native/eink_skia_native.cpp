@@ -363,6 +363,111 @@ std::unique_ptr<textlayout::Paragraph> make_paragraph(eink_skia_context *context
     return paragraph;
 }
 
+enum BatchCommand : uint8_t {
+    CMD_SAVE = 1,
+    CMD_RESTORE = 2,
+    CMD_TRANSLATE = 3,
+    CMD_SCALE = 4,
+    CMD_CLIP_RECT = 5,
+    CMD_SET_COLOR = 6,
+    CMD_SET_STYLE = 7,
+    CMD_SET_STROKE_WIDTH = 8,
+    CMD_DRAW_RECT = 9,
+    CMD_DRAW_ROUND_RECT = 10,
+    CMD_DRAW_PATH = 11,
+};
+
+struct CommandReader {
+    const unsigned char *data;
+    size_t len;
+    size_t offset;
+};
+
+bool read_bytes(CommandReader *reader, void *out, size_t n, const char *what) {
+    if (n > reader->len - reader->offset) {
+        fail_with_code(EINVAL,
+                       "eink_skia_replay_commands: truncated %s at offset=%zu need=%zu len=%zu",
+                       what,
+                       reader->offset,
+                       n,
+                       reader->len);
+        return false;
+    }
+    std::memcpy(out, reader->data + reader->offset, n);
+    reader->offset += n;
+    return true;
+}
+
+bool read_u8(CommandReader *reader, uint8_t *out, const char *what) {
+    return read_bytes(reader, out, sizeof(*out), what);
+}
+
+bool read_i32(CommandReader *reader, int32_t *out, const char *what) {
+    return read_bytes(reader, out, sizeof(*out), what);
+}
+
+bool read_f32(CommandReader *reader, float *out, const char *what) {
+    return read_bytes(reader, out, sizeof(*out), what);
+}
+
+int replay_set_color(eink_skia_context *context, CommandReader *reader) {
+    float r = 0.0f;
+    float g = 0.0f;
+    float b = 0.0f;
+    float a = 1.0f;
+    if (!read_f32(reader, &r, "set-color.r") || !read_f32(reader, &g, "set-color.g") ||
+        !read_f32(reader, &b, "set-color.b") || !read_f32(reader, &a, "set-color.a")) {
+        return -EINVAL;
+    }
+    context->paint.setColor(SkColorSetARGB(color_component(a),
+                                           color_component(r),
+                                           color_component(g),
+                                           color_component(b)));
+    return 0;
+}
+
+int replay_rect_args(CommandReader *reader, const char *name, float *x, float *y, float *width, float *height) {
+    if (!read_f32(reader, x, name) || !read_f32(reader, y, name) ||
+        !read_f32(reader, width, name) || !read_f32(reader, height, name)) {
+        return -EINVAL;
+    }
+    return ensure_positive_rect("eink_skia_replay_commands", *width, *height);
+}
+
+int replay_path(eink_skia_context *context, CommandReader *reader) {
+    int32_t point_count = 0;
+    int32_t closed = 0;
+    if (!read_i32(reader, &point_count, "draw-path.point-count") ||
+        !read_i32(reader, &closed, "draw-path.closed")) {
+        return -EINVAL;
+    }
+    if (point_count <= 0) {
+        return fail_with_code(EINVAL,
+                              "eink_skia_replay_commands: invalid path point_count=%d",
+                              point_count);
+    }
+
+    float x = 0.0f;
+    float y = 0.0f;
+    if (!read_f32(reader, &x, "draw-path.x0") || !read_f32(reader, &y, "draw-path.y0")) {
+        return -EINVAL;
+    }
+
+    SkPathBuilder builder;
+    builder.moveTo(x, y);
+    for (int32_t idx = 1; idx < point_count; ++idx) {
+        if (!read_f32(reader, &x, "draw-path.x") || !read_f32(reader, &y, "draw-path.y")) {
+            return -EINVAL;
+        }
+        builder.lineTo(x, y);
+    }
+    if (closed != 0) {
+        builder.close();
+    }
+    context->canvas->drawPath(builder.detach(), context->paint);
+    return 0;
+}
+
 } // namespace
 
 const char *eink_skia_last_error(void) {
@@ -750,6 +855,163 @@ int eink_skia_draw_text_box(void *ctx,
     }
 
     paragraph->paint(context->canvas, x, y);
+    clear_error();
+    return 0;
+}
+
+int eink_skia_replay_commands(void *ctx,
+                              const unsigned char *commands,
+                              size_t command_len,
+                              int command_count) {
+    eink_skia_context *context = as_context(ctx, "eink_skia_replay_commands");
+    if (context == nullptr) {
+        return -EINVAL;
+    }
+    if (command_count < 0) {
+        return fail_with_code(EINVAL,
+                              "eink_skia_replay_commands: invalid command_count=%d",
+                              command_count);
+    }
+    if (command_len > 0 && commands == nullptr) {
+        return fail_with_code(EINVAL, "eink_skia_replay_commands: commands is NULL");
+    }
+
+    CommandReader reader{commands, command_len, 0};
+    int seen = 0;
+    while (reader.offset < reader.len) {
+        uint8_t opcode = 0;
+        if (!read_u8(&reader, &opcode, "opcode")) {
+            return -EINVAL;
+        }
+        ++seen;
+
+        int rv = 0;
+        switch (opcode) {
+            case CMD_SAVE:
+                context->canvas->save();
+                break;
+
+            case CMD_RESTORE:
+                context->canvas->restore();
+                break;
+
+            case CMD_TRANSLATE: {
+                float x = 0.0f;
+                float y = 0.0f;
+                if (!read_f32(&reader, &x, "translate.x") || !read_f32(&reader, &y, "translate.y")) {
+                    return -EINVAL;
+                }
+                context->canvas->translate(x, y);
+                break;
+            }
+
+            case CMD_SCALE: {
+                float sx = 0.0f;
+                float sy = 0.0f;
+                if (!read_f32(&reader, &sx, "scale.sx") || !read_f32(&reader, &sy, "scale.sy")) {
+                    return -EINVAL;
+                }
+                context->canvas->scale(sx, sy);
+                break;
+            }
+
+            case CMD_CLIP_RECT: {
+                float x = 0.0f;
+                float y = 0.0f;
+                float width = 0.0f;
+                float height = 0.0f;
+                rv = replay_rect_args(&reader, "clip-rect", &x, &y, &width, &height);
+                if (rv != 0) {
+                    return rv;
+                }
+                context->canvas->clipRect(SkRect::MakeXYWH(x, y, width, height), true);
+                break;
+            }
+
+            case CMD_SET_COLOR:
+                rv = replay_set_color(context, &reader);
+                if (rv != 0) {
+                    return rv;
+                }
+                break;
+
+            case CMD_SET_STYLE: {
+                int32_t style = 0;
+                if (!read_i32(&reader, &style, "set-style")) {
+                    return -EINVAL;
+                }
+                context->paint.setStyle(decode_style(style));
+                break;
+            }
+
+            case CMD_SET_STROKE_WIDTH: {
+                float width = 0.0f;
+                if (!read_f32(&reader, &width, "set-stroke-width")) {
+                    return -EINVAL;
+                }
+                if (!(width >= 0.0f)) {
+                    return fail_with_code(EINVAL,
+                                          "eink_skia_replay_commands: invalid stroke width=%g",
+                                          static_cast<double>(width));
+                }
+                context->paint.setStrokeWidth(width);
+                break;
+            }
+
+            case CMD_DRAW_RECT: {
+                float x = 0.0f;
+                float y = 0.0f;
+                float width = 0.0f;
+                float height = 0.0f;
+                rv = replay_rect_args(&reader, "draw-rect", &x, &y, &width, &height);
+                if (rv != 0) {
+                    return rv;
+                }
+                context->canvas->drawRect(SkRect::MakeXYWH(x, y, width, height), context->paint);
+                break;
+            }
+
+            case CMD_DRAW_ROUND_RECT: {
+                float x = 0.0f;
+                float y = 0.0f;
+                float width = 0.0f;
+                float height = 0.0f;
+                float radius = 0.0f;
+                rv = replay_rect_args(&reader, "draw-round-rect", &x, &y, &width, &height);
+                if (rv != 0) {
+                    return rv;
+                }
+                if (!read_f32(&reader, &radius, "draw-round-rect.radius")) {
+                    return -EINVAL;
+                }
+                SkScalar r = std::max(0.0f, radius);
+                context->canvas->drawRoundRect(SkRect::MakeXYWH(x, y, width, height), r, r, context->paint);
+                break;
+            }
+
+            case CMD_DRAW_PATH:
+                rv = replay_path(context, &reader);
+                if (rv != 0) {
+                    return rv;
+                }
+                break;
+
+            default:
+                return fail_with_code(EINVAL,
+                                      "eink_skia_replay_commands: unknown opcode=%u at command=%d offset=%zu",
+                                      static_cast<unsigned>(opcode),
+                                      seen,
+                                      reader.offset - 1);
+        }
+    }
+
+    if (seen != command_count) {
+        return fail_with_code(EINVAL,
+                              "eink_skia_replay_commands: command_count mismatch expected=%d actual=%d",
+                              command_count,
+                              seen);
+    }
+
     clear_error();
     return 0;
 }

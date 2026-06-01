@@ -38,6 +38,12 @@
 (assert rev "Either GIT_REV must be set or git rev-parse HEAD must succeed")
 (assert repo-url-prefix "Either :url must be set in deps.edn under the :neil alias or git remote origin must exist")
 (def class-dir "target/classes")
+(def aot-class-dir "target/aot/classes")
+(def aot-jar-file "target/clojure-eink-demo-aot.jar")
+(def aot-clojure-version "1.12.4")
+(def aot-namespaces
+  '[ol.membrane-demo
+    ol.membrane-skia-demo])
 (def basis_ (delay (b/create-basis {:project "deps.edn"})))
 (def jar-file (format "target/%s-%s.jar" (name lib) version))
 
@@ -55,6 +61,22 @@
      [:url (str "https://" domain "/" repo-path)]
      [:connection (str "scm:git:https://" domain "/" repo-path)]
      [:developerConnection (str "scm:git:ssh:git@" domain ":" repo-path)]]))
+
+(defn- run-process!
+  [command-args]
+  (let [{:keys [exit] :as result} (b/process {:command-args command-args})]
+    (when-not (zero? exit)
+      (throw (ex-info (str "command failed: " (str/join " " command-args))
+                      (assoc result :command-args command-args)))))
+  nil)
+
+(defn- aot-compile-form []
+  (pr-str
+   `(do
+      (binding [*compile-path* ~aot-class-dir]
+        ~@(map (fn [namespace]
+                 `(compile '~namespace))
+               aot-namespaces)))))
 
 (defn clean [_]
   (b/delete {:path "target"}))
@@ -77,6 +99,21 @@
                :target-dir class-dir})
   (b/jar {:class-dir class-dir
           :jar-file  jar-file}))
+
+(defn aot-jar [_]
+  (b/delete {:path "target/aot"})
+  (.mkdirs (io/file aot-class-dir))
+  (run-process!
+   ["clojure"
+    "-Sdeps"
+    (format "{:deps {org.clojure/clojure {:mvn/version \"%s\"}}}" aot-clojure-version)
+    "-M"
+    "-e"
+    (aot-compile-form)])
+  (run-process! ["sh" "-c" (format "jar c0f %s -C %s ." aot-jar-file aot-class-dir)])
+  {:aot-jar-file aot-jar-file
+   :class-dir    aot-class-dir
+   :namespaces   aot-namespaces})
 
 (defn install [_]
   (jar {})

@@ -70,6 +70,11 @@
     (is (true? (:reuse-image? (project/parse-args ["--reuse-image"]))))
     (is (false? (:reuse-image? (project/parse-args ["--reuse-image" "--no-reuse-image"]))))))
 
+(deftest parse-skia-batch-options-test
+  (testing "Skia renderer can opt in and out of the batched command path"
+    (is (true? (:skia-batch? (project/parse-args ["--skia-batch"]))))
+    (is (false? (:skia-batch? (project/parse-args ["--skia-batch" "--no-skia-batch"]))))))
+
 (deftest render-demo-frame-timings-test
   (testing "render-demo-frame returns an image and per-phase timings"
     (let [render-frame (some-> (ns-resolve 'ol.project 'render-demo-frame) deref)]
