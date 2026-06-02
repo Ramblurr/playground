@@ -1,3 +1,5 @@
+(import ./platform :as platform)
+
 (defn run
   [& args]
-  (print "Hello Otter"))
+  (platform/run-hello))

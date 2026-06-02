@@ -21,6 +21,13 @@
 
       jeep = pkgs.callPackage ./nix/pkgs/jeep/package.nix { };
 
+      janetOtterSdl = pkgs.callPackage ./nix/pkgs/janet-otter-sdl/package.nix {
+        src = ./.;
+        janet = pkgs.janet;
+        SDL2 = pkgs.SDL2;
+        skia = pkgs.skia;
+      };
+
       fbinkKobo = armv7lPkgs.callPackage ./nix/pkgs/fbink/package.nix {
         src = fbink-src;
         version = "janet-eink-poc";
@@ -54,6 +61,7 @@
       packages.${system} = {
         default = armv7lPkgs.janet;
         jeep = jeep;
+        janet-otter-sdl = janetOtterSdl;
         janet-armv7l = armv7lPkgs.janet;
         fbink-kobo = fbinkKobo;
         janet-fbink-bridge-kobo = janetFbinkBridgeKobo;
@@ -91,17 +99,24 @@
           pkgs.janet
           pkgs.jpm
           pkgs.gcc
+          pkgs.gnumake
+          pkgs.pkg-config
+          pkgs.SDL2
+          pkgs.skia
           jeep
+          janetOtterSdl
         ];
 
         shellHook = ''
           #export JANET_EINK_JPM_TREE="$PWD/.dev-jpm-tree"
           #export PATH="$JANET_EINK_JPM_TREE/bin:$PATH"
           #export JANET_PATH="$JANET_EINK_JPM_TREE/lib''${JANET_PATH:+:$JANET_PATH}"
+          export OTTER_DESKTOP_NATIVE_FALLBACK="${janetOtterSdl}/lib/janet-otter-sdl.so"
           echo "Janet dev shell"
           echo "  janet: $(command -v janet)"
           echo "  jpm:   $(command -v jpm)"
           echo "  jeep:  $(command -v jeep)"
+          echo "  sdl native fallback: $OTTER_DESKTOP_NATIVE_FALLBACK"
           #echo "  local JPM tree: $JANET_EINK_JPM_TREE"
           #if [ ! -x "$JANET_EINK_JPM_TREE/bin/janet-netrepl" ]; then
           #  echo "  spork netrepl not installed yet; run:"
