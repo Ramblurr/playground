@@ -1,14 +1,19 @@
 {
   stdenv,
   janet,
-  src,
   koboInstallPath ? "/mnt/onboard/janet-eink-demo/janet",
-  version ? "1.2.0",
+  fetchFromGitHub,
 }:
 
 stdenv.mkDerivation {
   pname = "spork-netrepl";
-  inherit version src;
+  version = "1.2.0";
+  src = fetchFromGitHub {
+    owner = "janet-lang";
+    repo = "spork";
+    rev = "993887a8dbc9387af3b037418f02ef8e2b42b275";
+    hash = "sha256-4oKmRjwDMRwlnntHOh3k2XG3pNxQ239Hgvw7zlokoCQ=";
+  };
 
   strictDeps = true;
 

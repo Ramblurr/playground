@@ -11,3 +11,6 @@ result-*
 *.log
 .netrepl-local.pid
 .netrepl-local.log
+*.tested
+_build/
+_system/

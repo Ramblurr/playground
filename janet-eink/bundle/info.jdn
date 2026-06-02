@@ -1,0 +1,21 @@
+{:name "otter"
+ :version "0.1.0"
+ :description "Otter is e-ink experiments for Kobo in Janet"
+ :author "ramblurr"
+ :license "MIT"
+ :url "https://github.com/ramblurr/playground"
+ :repo "git+https://github.com/ramblurr/playground"
+ :dependencies []
+ :vendored [{:name "testament"
+             :url "https://github.com/pyrmont/testament"
+             :prefix "deps/testament"
+             :paths ["lib/testament.janet"
+                     "init.janet"
+                     "LICENSE"]
+             :tag "1702200f04665ecfe4a32668124d175fbc82898e"}]
+ :artifacts {:libraries [{:prefix "otter"
+                          :paths ["lib" "init.janet"]}]
+             :executables []
+             :manpages []
+             :natives []
+             :scripts [{:path "bin/otter"}]}}

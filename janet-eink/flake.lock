@@ -29,20 +29,7 @@
     "root": {
       "inputs": {
         "fbink-src": "fbink-src",
-        "nixpkgs": "nixpkgs",
-        "spork-src": "spork-src"
-      }
-    },
-    "spork-src": {
-      "flake": false,
-      "locked": {
-        "narHash": "sha256-hO1mgLvolKoANb+30zQQp9uh1JfKfOa0OFsSLqAt6Dk=",
-        "path": "/home/ramblurr/src/github.com/janet-lang/spork",
-        "type": "path"
-      },
-      "original": {
-        "path": "/home/ramblurr/src/github.com/janet-lang/spork",
-        "type": "path"
+        "nixpkgs": "nixpkgs"
       }
     }
   },

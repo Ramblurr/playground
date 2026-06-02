@@ -27,7 +27,7 @@ stdenv.mkDerivation {
       -L ${fbink}/lib \
       -Wl,-rpath,'$ORIGIN' \
       -shared -o janet-fbink.so \
-      src/native/janet_fbink.c -ljanet -lfbink
+      src/janet_fbink.c -ljanet -lfbink
 
     runHook postBuild
   '';

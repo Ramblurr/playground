@@ -59,13 +59,7 @@ ssh root@kobo-lan 'cd /mnt/onboard/janet-eink-demo/janet && ./bin/janet share/ja
 Expected FBInk smoke exits `0` and prints `Hello Janet!` centered on screen.
 Expected Skia smoke exits `0` and renders a white full-screen bitmap with centered black `Hello Skia!` block text and a black rectangle.
 
-## Local dev shell
-
-`flake.nix` defines a dev shell with:
-
-- `pkgs.janet`
-- `pkgs.jpm`
-- `pkgs.gcc`
+## Local Dev
 
 Enter:
 
@@ -73,18 +67,31 @@ Enter:
 nix develop
 ```
 
-Spork was installed locally into `.dev-jpm-tree/` with:
+Dev shell tools: `janet`, `jpm`, `gcc`, `jeep`.
+
+Run Otter from source:
 
 ```sh
-(cd /home/ramblurr/src/github.com/janet-lang/spork && \
-  jpm --tree="$PWD/.dev-jpm-tree" install)
+./bin/otter
 ```
 
-In the dev shell:
+Install/run as a local modern bundle:
 
-- `JANET_EINK_JPM_TREE=$PWD/.dev-jpm-tree`
-- `JANET_PATH=$JANET_EINK_JPM_TREE/lib`
-- `$JANET_EINK_JPM_TREE/bin` is prepended to `PATH`.
+```sh
+jeep -l install
+./_system/bin/otter
+```
+
+Testing:
+```sh
+jeep test
+```
+
+Deps are vendored:
+```sh
+jeep dep --vendor <dep>
+jeep prep vendor
+```
 
 ## Local netrepl
 
@@ -148,3 +155,14 @@ printf '(+ 40 2)\n' | janet-netrepl -c -H "$KOBO_HOST" -P 9365 -n smoke
 ```
 
 `kobo-lan` is an SSH alias; Janet netrepl needs the resolved host/IP unless DNS also knows `kobo-lan`.
+
+## Reference
+
+- janet  ~/src/github.com/janet-lang/janet
+- janet spork (official contrib library) ~/src/github.com/janet-lang/spork
+- janet docs/site ~/src/github.com/janet-lang/janet-lang.org
+- skia ~/src/github.com/google/skia
+- membrane ~/src/github.com/phronmophobic/membrane
+- extra/ local repo reference material
+    - janet-bundles.md how janet bundles work
+    - janet-dir-structure.md how janet dir structure works
