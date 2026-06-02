@@ -6,11 +6,14 @@
    [ol.input.evdev :as evdev]
    [ol.input.kobo :as input.kobo]
    [ol.input.runtime :as input.runtime]
+   [ol.membrane.paragraph]
    [ol.project :as project])
   (:import
    [java.awt BasicStroke Color Font Graphics2D RenderingHints]
+   [java.awt.font LineBreakMeasurer TextAttribute TextLayout]
    [java.awt.geom Path2D$Double Rectangle2D$Double RoundRectangle2D$Double]
-   [java.awt.image BufferedImage]))
+   [java.awt.image BufferedImage]
+   [java.text AttributedString]))
 
 (def ^:dynamic *g* nil)
 (def ^:dynamic *paint-style* :membrane.ui/style-fill)
@@ -85,6 +88,75 @@
   (let [^Font jfont (get-java-font font)
         frc         (get-font-render-context)]
     (.getWidth (.getStringBounds jfont ^String (str s) frc))))
+
+(defn- text-layout-height
+  [^TextLayout layout]
+  (+ (.getAscent layout)
+     (.getDescent layout)
+     (.getLeading layout)))
+
+(defn- attributed-iterator
+  [^String text ^Font font]
+  (let [attributed (AttributedString. text)]
+    (.addAttribute attributed TextAttribute/FONT font)
+    (.getIterator attributed)))
+
+(defn- layout-paragraph-segment
+  [^String segment ^Font font frc width align start-y]
+  (let [iterator (attributed-iterator segment font)
+        measurer (LineBreakMeasurer. iterator frc)
+        end      (.getEndIndex iterator)
+        width'   (float (max 1.0 (double width)))]
+    (loop [y     (double start-y)
+           lines []]
+      (if (< (.getPosition measurer) end)
+        (let [layout      (.nextLayout measurer width')
+              line-height (text-layout-height layout)
+              advance     (.getAdvance layout)
+              x           (case align
+                            :left 0.0
+                            :center (/ (- width' advance) 2.0)
+                            :right (- width' advance)
+                            0.0)]
+          (recur (+ y line-height)
+                 (conj lines {:layout   layout
+                              :x        (double (max 0.0 x))
+                              :baseline (double (+ y (.getAscent layout)))
+                              :height   (double line-height)})))
+        {:y y :lines lines}))))
+
+(defn paragraph-layout
+  [font text width align]
+  (let [^Font java-font (get-java-font font)
+        frc             (get-font-render-context)
+        line-height     (font-line-height font)
+        segments        (str/split (str text) #"\n" -1)
+        width'          (double width)]
+    (loop [segments segments
+           y        0.0
+           lines    []]
+      (if-let [segment (first segments)]
+        (if (str/blank? segment)
+          (recur (next segments)
+                 (+ y line-height)
+                 (conj lines {:layout   nil
+                              :x        0.0
+                              :baseline y
+                              :height   (double line-height)}))
+          (let [{next-y :y segment-lines :lines}
+                (layout-paragraph-segment segment java-font frc width' align y)]
+            (recur (next segments) next-y (into lines segment-lines))))
+        {:width  width'
+         :height (double y)
+         :lines  lines}))))
+
+(defn paragraph-bounds
+  [paragraph]
+  (let [{:keys [width height]} (paragraph-layout (:font paragraph)
+                                                 (:text paragraph)
+                                                 (:width paragraph)
+                                                 (:align paragraph))]
+    [width height]))
 
 (defmacro ^:private push-stroke
   [& body]
@@ -162,6 +234,25 @@
        (.setFont ^Graphics2D *g* font)
        (doseq [[idx line] (map-indexed vector lines)]
          (.drawString ^Graphics2D *g* ^String line (float 0.0) (float (+ ascent (* idx line-height)))))))))
+
+(extend-type ol.membrane.paragraph.Paragraph
+  ui/IBounds
+  (-bounds [this]
+    (paragraph-bounds this))
+
+  IDraw
+  (draw [this]
+    (let [{:keys [font text width align]} this
+          {:keys [lines]}                 (paragraph-layout font text width align)
+          java-font                       (get-java-font font)]
+      (push-font
+       (.setFont ^Graphics2D *g* java-font)
+       (doseq [line lines]
+         (when-let [layout (:layout line)]
+           (.draw ^TextLayout layout
+                  ^Graphics2D *g*
+                  (float (:x line))
+                  (float (:baseline line)))))))))
 
 (extend-type membrane.ui.Translate
   IDraw

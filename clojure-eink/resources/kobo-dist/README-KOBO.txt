@@ -30,6 +30,12 @@ Long-lived Membrane Java2D loop with gray8 damage tracking:
 
   ./run-membrane-loop.sh --no-wait --no-flash
 
+Paragraph reading benchmark (source-loaded, no framebuffer present by default):
+
+  ./run-reading-benchmark.sh reading-skia --renders 5 --no-present
+  ./run-reading-benchmark.sh reading-skia-batch-text --renders 5 --no-present
+  ./run-reading-benchmark.sh reading-java2d --renders 5 --no-present
+
 Loop commands:
 
   render --renders 1 --no-present

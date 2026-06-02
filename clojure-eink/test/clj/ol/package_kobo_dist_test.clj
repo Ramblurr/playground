@@ -14,7 +14,8 @@
    "run-membrane-demo.sh"
    "run-membrane-loop.sh"
    "run-membrane-skia-demo.sh"
-   "run-membrane-skia-demo-source.sh"])
+   "run-membrane-skia-demo-source.sh"
+   "run-reading-benchmark.sh"])
 
 (def expected-runtime-scripts
   (remove #{"README-KOBO.txt"} expected-dist-template-files))

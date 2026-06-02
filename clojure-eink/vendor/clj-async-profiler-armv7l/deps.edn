@@ -1,0 +1,2 @@
+{:paths ["src" "resources"]
+ :deps  {com.clojure-goes-fast/clj-async-profiler {:mvn/version "1.7.0"}}}

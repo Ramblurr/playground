@@ -2,7 +2,8 @@
   (:require
    [clojure.java.io :as io]
    [clojure.string :as str]
-   [membrane.ui :as ui])
+   [membrane.ui :as ui]
+   [ol.membrane.paragraph :as paragraph])
   (:import
    [java.io ByteArrayOutputStream]
    [java.lang.foreign Arena FunctionDescriptor Linker Linker$Option MemoryLayout MemorySegment SymbolLookup ValueLayout]
@@ -165,7 +166,6 @@
    :membrane.ui/style-stroke          1
    :membrane.ui/style-stroke-and-fill 2})
 
-
 (def waveforms
   {:auto 0
    :du   1
@@ -181,20 +181,12 @@
 
 (declare paragraph-bounds)
 
-(defrecord Paragraph [text font width]
-  ui/IOrigin
-  (-origin [_]
-    [0 0])
-
-  ui/IBounds
-  (-bounds [this]
-    (if *context*
-      (paragraph-bounds *context* this)
-      [width (double (* 1.35 (or (:size font) (:size ui/default-font))))])))
-
 (defn paragraph
-  [text font width]
-  (Paragraph. (str text) font (double width)))
+  "Compatibility wrapper for the backend-neutral [[ol.membrane.paragraph/paragraph]]."
+  ([text font width]
+   (paragraph/paragraph text font width))
+  ([text font width opts]
+   (paragraph/paragraph text font width opts)))
 
 (defn default-font-dir
   ([]
@@ -380,8 +372,8 @@
   [context]
   (when-let [batch *command-batch*]
     (let [^ByteArrayOutputStream out (:out batch)
-          command-count             @(:pending-count batch)
-          byte-count                (.size out)]
+          command-count              @(:pending-count batch)
+          byte-count                 (.size out)]
       (when (pos? byte-count)
         (let [bytes (.toByteArray out)]
           (with-open [arena (Arena/ofConfined)]
@@ -541,9 +533,26 @@
   (native-call! context :clear-text-cache)
   nil)
 
+(defn- require-left-paragraph-align!
+  [{:keys [align]}]
+  (when-not (= :left (or align :left))
+    (throw (ex-info "Skia paragraph backend currently supports only left alignment"
+                    {:align     align
+                     :supported #{:left}}))))
+
+(defn- approximate-paragraph-bounds
+  [{:keys [text font width]}]
+  (let [[natural-width line-height] (approximate-text-bounds font text)
+        line-count                  (max 1.0 (Math/ceil (/ (double natural-width)
+                                                           (max 1.0 (double width)))))]
+    [(double width)
+     (double (* line-height line-count))]))
+
 (defn paragraph-bounds
-  [context {:keys [text font width]}]
-  (text-bounds context font text width))
+  [context {:keys [text font width] :as paragraph}]
+  (require-left-paragraph-align! paragraph)
+  (let [[_ height] (text-bounds context font text width)]
+    [(double width) height]))
 
 (defn- draw-text-box!
   [context text font x y max-width]
@@ -641,9 +650,16 @@
     (let [context (require-context)]
       (draw-text-box! context (:text this) (:font this) 0.0 0.0 label-max-width))))
 
-(extend-type Paragraph
+(extend-type ol.membrane.paragraph.Paragraph
+  ui/IBounds
+  (-bounds [this]
+    (if *context*
+      (paragraph-bounds *context* this)
+      (approximate-paragraph-bounds this)))
+
   IDraw
   (draw [this]
+    (require-left-paragraph-align! this)
     (let [context (require-context)]
       (draw-text-box! context (:text this) (:font this) 0.0 0.0 (:width this)))))
 

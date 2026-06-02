@@ -2,7 +2,8 @@
   (:require
    [clojure.test :refer [deftest is testing]]
    [membrane.ui :as ui]
-   [ol.membrane.backend.skia :as backend]))
+   [ol.membrane.backend.skia :as backend]
+   [ol.membrane.paragraph]))
 
 (defn- skia-native-lib
   []
@@ -33,7 +34,7 @@
 
 (defn- paragraph-node?
   [node]
-  (= "ol.membrane.backend.skia.Paragraph" (.getName (class node))))
+  (instance? ol.membrane.paragraph.Paragraph node))
 
 (defn- paragraph-texts
   [elem]

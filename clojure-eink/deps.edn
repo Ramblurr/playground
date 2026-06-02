@@ -11,7 +11,8 @@
                                   lambdaisland/ansi                        {:mvn/version "0.2.37"}
                                   my/dev-repl                              {:git/url "https://github.com/Ramblurr/clojure-dev-repl.git"
                                                                             :git/sha "3a298ad1d16875ff841079b1bfab087d3ef817ba"}
-                                  com.clojure-goes-fast/clj-async-profiler {:mvn/version "1.7.0"}}}
+                                  com.clojure-goes-fast/clj-async-profiler {:mvn/version "1.7.0"}
+                                  local/clj-async-profiler-armv7l           {:local/root "vendor/clj-async-profiler-armv7l"}}}
            :build  {:deps       {io.github.clojure/tools.build {:mvn/version "0.10.13"}
                                  slipset/deps-deploy           {:mvn/version "0.2.2"}}
                     :ns-default build}

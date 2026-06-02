@@ -4,7 +4,8 @@
    [clojure.string]
    [clojure.test :refer [deftest is testing]]
    [membrane.ui :as ui]
-   [ol.membrane.backend.skia :as backend])
+   [ol.membrane.backend.skia :as backend]
+   [ol.membrane.paragraph :as paragraph])
   (:import
    [java.lang.foreign Arena MemorySegment ValueLayout]
    [java.lang.invoke MethodHandle]
@@ -545,7 +546,7 @@
 (deftest skia-backend-label-bounds-fallback-does-not-require-java2d-test
   (testing "Skia label bounds fallback is local to the Skia backend"
     (is (not (clojure.string/includes? (slurp "src/clj/ol/membrane/backend/skia.clj")
-                                        "ol.membrane.backend.java2d")))
+                                       "ol.membrane.backend.java2d")))
     (let [[w h] (ui/bounds (ui/label "Fallback" (ui/font "Noto Sans" 12)))]
       (is (pos? w))
       (is (pos? h)))))
@@ -596,9 +597,9 @@
                     :render-counts  [1 1]
                     :batch-used?    true}
                    {:same-geometry? (= (select-keys (:gray direct-result) [:width :height :stride])
-                                      (select-keys (:gray batch-result) [:width :height :stride]))
+                                       (select-keys (:gray batch-result) [:width :height :stride]))
                     :same-pixels?   (= (vec (:data (:gray direct-result)))
-                                      (vec (:data (:gray batch-result))))
+                                       (vec (:data (:gray batch-result))))
                     :render-counts  [@(:render-count context-direct) @(:render-count context-batch)]
                     :batch-used?    (pos? (get-in batch-result [:skia-batch :commands] 0))})))
           (finally
@@ -659,7 +660,7 @@
           (finally
             (backend-call 'close-context! context)))))))
 
-(deftest skia-paragraph-drawable-renders-visible-wrapped-text-test
+(deftest skia-ui-paragraph-drawable-renders-visible-wrapped-text-test
   (with-test-native-and-fonts [_native font-dir]
     (if-let [missing (seq (missing-high-level-vars))]
       (is (= [] (vec missing)))
@@ -670,30 +671,32 @@
                                    :width          180
                                    :height         120})]
         (try
-          (let [paragraph       (backend-call 'paragraph
-                                              "SkParagraph wraps project-local e-reader text — Café 123"
-                                              (ui/font "Noto Serif" 18)
-                                              120)
+          (let [paragraph       (paragraph/paragraph
+                                 "SkParagraph wraps project-local e-reader text — Café 123"
+                                 (ui/font "Noto Serif" 18)
+                                 120
+                                 {:align :left})
                 [para-w para-h] (backend-call 'paragraph-bounds context paragraph)
-                {:keys [gray]}  (backend-call 'render-frame!
+                result          (backend-call 'render-frame-batched!
                                               context
                                               [(ui/with-color [1 1 1]
                                                  (ui/rectangle 180 120))
                                                (ui/with-color [0 0 0]
                                                  (ui/translate 6 6 paragraph))]
-                                              {})]
-            (is (= {:positive?     true
-                    :within-width? true}
-                   {:positive?     (and (pos? para-w) (pos? para-h))
-                    :within-width? (<= para-w 125.0)}))
-            (is (= {:width  180
-                    :height 120
-                    :stride 180}
-                   (select-keys gray [:width :height :stride])))
-            (is (some dark-byte? (:data gray))))
+                                              {:skia-batch? true :skia-batch-text? true})
+                gray            (:gray result)]
+            (is (= {:fixed-width     120.0
+                    :positive-height true
+                    :text-calls      1
+                    :geometry        {:width 180 :height 120 :stride 180}
+                    :dark?           true}
+                   {:fixed-width     para-w
+                    :positive-height (pos? para-h)
+                    :text-calls      (get-in result [:skia-batch :text-calls])
+                    :geometry        (select-keys gray [:width :height :stride])
+                    :dark?           (boolean (some dark-byte? (:data gray)))})))
           (finally
             (backend-call 'close-context! context)))))))
-
 
 (deftest skia-render-frame-repeated-stable-dimensions-test
   (with-test-native-and-fonts [_native font-dir]

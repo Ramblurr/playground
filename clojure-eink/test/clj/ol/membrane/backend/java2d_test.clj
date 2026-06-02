@@ -5,6 +5,7 @@
    [membrane.toolkit :as tk]
    [membrane.ui :as ui]
    [ol.membrane.backend.java2d :as backend]
+   [ol.membrane.paragraph :as paragraph]
    [ol.project :as project])
   (:import
    [javax.imageio ImageIO]))
@@ -20,6 +21,26 @@
       (is (= 160 (:width gray)))
       (is (= 96 (:height gray)))
       (is (some #(< (bit-and 0xFF %) 250) (:data gray))))))
+
+(deftest java2d-paragraph-bounds-wrap-and-render-test
+  (testing "Java2D measures and draws a fixed-width paragraph with real line layout"
+    (let [font            (ui/font nil 18)
+          text            "alpha beta gamma delta epsilon zeta eta theta"
+          paragraph       (paragraph/paragraph text font 95)
+          label           (ui/label text font)
+          [para-w para-h] (ui/bounds paragraph)
+          [_ label-h]     (ui/bounds label)
+          image           (backend/render-to-image!
+                           [(ui/with-color [0 0 0]
+                              (ui/translate 4 4 paragraph))]
+                           {:width 140 :height 120})
+          gray            (project/image->gray8 image)]
+      (is (= {:fixed-width 95.0
+              :wraps?      true
+              :draws?      true}
+             {:fixed-width para-w
+              :wraps?      (> para-h label-h)
+              :draws?      (boolean (some #(< (bit-and 0xFF %) 250) (:data gray)))})))))
 
 (deftest gray8-snapshot-copies-backing-data-test
   (testing "snapshot-gray8 copies bytes instead of keeping mutable image backing data"

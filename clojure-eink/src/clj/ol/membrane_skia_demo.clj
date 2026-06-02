@@ -2,6 +2,7 @@
   (:require
    [membrane.ui :as ui]
    [ol.membrane.backend.skia :as backend]
+   [ol.membrane.paragraph :as paragraph]
    [ol.project :as project]))
 
 (def paragraph-text
@@ -61,7 +62,7 @@
         (ui/translate margin title-y
                       (ui/label "SKIA renderer on FBInk" title-font))
         (ui/translate margin paragraph-y
-                      (backend/paragraph paragraph-text body-font paragraph-width))
+                      (paragraph/paragraph paragraph-text body-font paragraph-width))
         (ui/translate margin smoke-y
                       (ui/label unicode-smoke-text small-font)))
       (ui/translate margin button-y
