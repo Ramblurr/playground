@@ -21,10 +21,10 @@
     (kobo?) :kobo-fbink
     :else :desktop-sdl))
 
-(defn run-hello
+(defn run-demo
   []
   (def backend (detect))
   (cond
-    (= backend :desktop-sdl) (desktop/run-hello)
-    (= backend :kobo-fbink) (kobo/run-hello)
+    (= backend :desktop-sdl) (desktop/run-demo)
+    (= backend :kobo-fbink) (kobo/run-demo)
     :else (error (string "unsupported Otter backend: " backend))))

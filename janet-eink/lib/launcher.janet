@@ -2,4 +2,4 @@
 
 (defn run
   [& args]
-  (platform/run-hello))
+  (platform/run-demo))

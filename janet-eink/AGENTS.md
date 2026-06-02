@@ -10,11 +10,11 @@
 
 - `.#janet-armv7l` — cross-built `pkgs.janet` for ARMv7l.
 - `.#fbink-kobo` — Kobo FBInk build copied from `../clojure-eink` pattern.
-- `.#janet-fbink-bridge-kobo` — Janet native module exposing simple FBInk calls.
-- `.#janet-skia-bridge-kobo` — Janet native module rendering the Skia hello demo and presenting via FBInk.
+- `.#janet-fbink-bridge-kobo` — legacy Janet native module exposing simple FBInk text calls; not bundled by default.
+- `.#janet-skia-bridge-kobo` — Janet native module exposing gray8 Skia drawing primitives and presenting via FBInk.
 - `.#skia-kobo` — ARMv7l Skia raster/text libs copied from `../clojure-eink`.
-- `.#kobo-bundle` — self-contained Kobo runtime bundle of everything
-- `.#janet-otter-sdl` — local x86_64 Janet native module presenting the fixed Kobo Skia canvas through SDL.
+- `.#kobo-bundle` — self-contained Kobo runtime bundle of everything.
+- `.#janet-otter-sdl` — local x86_64 Janet native module drawing gray8 Skia canvases and presenting through SDL.
 
 ## Code map
 
@@ -22,9 +22,9 @@
 - `lib/platform.janet` — chooses `:desktop-sdl` on Linux dev hosts and `:kobo-fbink` on Kobo.
 - `lib/desktop.janet` — Janet wrapper for the SDL native module.
 - `lib/kobo.janet` — Janet wrapper for the Kobo Skia/FBInk native module.
-- `src/otter_skia_hello.*` — shared Skia software renderer for the hello demo.
+- `src/otter_drawing_backend.*` — shared gray8 Skia drawing backend for rectangles, rounded rectangles, triangles, circles, demo scene, stats, and RGBA conversion.
 - `src/janet_otter_sdl.cc` — SDL desktop backend; opens a window and presents a fixed `1680x1264` Kobo canvas centered in the actual compositor window, clipping rather than scaling.
-- `src/janet_skia.cc` — Kobo backend; renders with Skia and presents via FBInk.
+- `src/janet_skia.cc` — Kobo backend; exposes the same drawing primitives and presents gray8 buffers via FBInk.
 
 ## Bundle shape
 
@@ -37,17 +37,19 @@ Installed as:
 Important files:
 
 - `bin/janet`
-- `lib/janet-fbink.so`
+- `bin/otter`
 - `lib/janet-skia.so`
 - `lib/libfbink.so.1`
 - `lib/libskia.so`, `lib/libskparagraph.so`, `lib/libskshaper.so`, `libskunicode_*`
-- `share/janet-eink/hello-fbink.janet`
-- `share/janet-eink/hello-skia.janet`
+- `otter/{init.janet,lib/*.janet}`
+- `share/janet-eink/demo-skia.janet`
 
 `nix/pkgs/janet-kobo-bundle/package.nix` accepts:
 
 - `bundledNativeLibPackages = [ ... ];`
-- `bundledPrograms = [{ name = "..."; src = ./...; destination = "..."; mode = "0644"; }];`
+- `bundledTreePackages = [ ... ];`
+- `bundledJanetBundles = [{ name = "..."; src = ./...; }];` — installed with target Janet under qemu so bundle metadata is present.
+- `bundledPrograms = [{ name = "..."; src = ./...; destination = "..."; mode = "0644"; }];` for loose extra files only.
 
 It copies ELF libs by SONAME as real files because `/mnt/onboard` does not support symlinks.
 
@@ -63,12 +65,11 @@ Smoke checks:
 
 ```sh
 ssh root@kobo-lan 'cd /mnt/onboard/janet-eink-demo/janet && ./bin/janet -v'
-ssh root@kobo-lan 'cd /mnt/onboard/janet-eink-demo/janet && ./bin/janet share/janet-eink/hello-fbink.janet'
-ssh root@kobo-lan 'cd /mnt/onboard/janet-eink-demo/janet && ./bin/janet share/janet-eink/hello-skia.janet'
+ssh root@kobo-lan 'cd /mnt/onboard/janet-eink-demo/janet && ./bin/janet share/janet-eink/demo-skia.janet'
+ssh root@kobo-lan 'cd /mnt/onboard/janet-eink-demo/janet && PATH="$PWD/bin:$PATH" ./bin/otter'
 ```
 
-Expected FBInk smoke exits `0` and prints `Hello Janet!` centered on screen.
-Expected Skia smoke exits `0` and renders a white full-screen bitmap with centered black `Hello Skia!` block text and a black rectangle.
+Expected Skia/FBInk smoke exits `0` and renders a full-screen grayscale geometry demo with bars, rectangles, triangles, rounded rectangles, circles, and a black border.
 
 ## Local Dev
 

@@ -10,6 +10,7 @@
   targetLibgcc,
   bundledNativeLibPackages ? [ ],
   bundledTreePackages ? [ ],
+  bundledJanetBundles ? [ ],
   bundledPrograms ? [ ],
   koboInstallPath ? "/mnt/onboard/janet-eink-demo/janet",
 }:
@@ -41,6 +42,28 @@ let
     ''
       install -D -m ${mode} ${program.src} "$out/${destination}"
     '') bundledPrograms;
+
+  janetBundleSrc = bundle: if lib.isAttrs bundle then bundle.src else bundle;
+
+  janetBundleName = bundle:
+    if lib.isAttrs bundle && bundle ? name then [ bundle.name ] else [ ];
+
+  bundledJanetBundleNames = lib.concatMap janetBundleName bundledJanetBundles;
+
+  installBundledJanetBundles = lib.concatMapStringsSep "\n" (bundle: ''
+    qemu-arm ${targetJanet}/bin/janet --syspath "$out" --install ${janetBundleSrc bundle}
+  '') bundledJanetBundles;
+
+  checkBundledJanetBundles = lib.concatMapStringsSep "\n" (name: ''
+    if ! qemu-arm "$out/lib/ld-linux-armhf.so.3" \
+        --library-path "$out/lib" \
+        "$out/bin/janet" \
+        --syspath "$out" \
+        --list | grep -Fx ${lib.escapeShellArg name}; then
+      echo "expected Janet bundle ${name} to be installed in $out" >&2
+      exit 1
+    fi
+  '') bundledJanetBundleNames;
 in
 runCommand "janet-kobo-armv7l-bundle"
   {
@@ -86,6 +109,8 @@ runCommand "janet-kobo-armv7l-bundle"
 
     ${copyBundledTreePackages}
 
+    ${installBundledJanetBundles}
+
     while IFS= read -r storePath; do
       case "$storePath" in
         *-glibc-*)
@@ -100,6 +125,16 @@ runCommand "janet-kobo-armv7l-bundle"
     done < ${bundledLibClosure}/store-paths
 
     ${copyBundledPrograms}
+
+    if [ -d "$out/bundle" ]; then
+      while IFS= read -r manifest; do
+        sed -i "s|$out|${koboInstallPath}|g" "$manifest"
+      done < <(find "$out/bundle" -type f -name manifest.jdn -print)
+      if grep -R -F "$out" "$out/bundle"; then
+        echo "Janet bundle metadata still references build output path $out" >&2
+        exit 1
+      fi
+    fi
 
     for lib in \
       ld-linux-armhf.so.3 \
@@ -141,4 +176,6 @@ runCommand "janet-kobo-armv7l-bundle"
       --library-path "$out/lib" \
       "$out/bin/janet" \
       -e '(print "janet kobo bundle smoke ok")'
+
+    ${checkBundledJanetBundles}
   ''

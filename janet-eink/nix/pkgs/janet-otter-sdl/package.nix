@@ -27,6 +27,7 @@ stdenv.mkDerivation {
   buildPhase = ''
     runHook preBuild
 
+    rm -rf build
     make native
 
     runHook postBuild
@@ -40,18 +41,20 @@ stdenv.mkDerivation {
     export LD_LIBRARY_PATH="$PWD/build:${janet}/lib:${SDL2}/lib:${skia}/lib''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     ${janet}/bin/janet -e '
       (def desktop-module (native "./build/janet-otter-sdl.so"))
-      (def render-self-test ((desktop-module (quote render-self-test)) :value))
-      (def stats (render-self-test))
+      (def render-demo-self-test ((desktop-module (quote render-demo-self-test)) :value))
+      (def stats (render-demo-self-test))
       (unless (= 1680 (get stats :width))
         (error (string/format "expected width 1680, got %v" (get stats :width))))
       (unless (= 1264 (get stats :height))
         (error (string/format "expected height 1264, got %v" (get stats :height))))
-      (unless (= "HELLO SKIA" (get stats :text))
-        (error (string/format "expected HELLO SKIA text, got %v" (get stats :text))))
-      (unless (> (get stats :black-pixels) 1000)
-        (error (string/format "expected Skia render smoke to draw ink, got %d black pixels" (get stats :black-pixels))))
+      (unless (= :gray8 (get stats :pixel-format))
+        (error (string/format "expected gray8 pixel format, got %v" (get stats :pixel-format))))
+      (unless (>= (get stats :gray-shades) 8)
+        (error (string/format "expected at least 8 gray shades, got %d" (get stats :gray-shades))))
+      (unless (> (get stats :non-white-pixels) 200000)
+        (error (string/format "expected Skia render smoke to draw geometry, got %d non-white pixels" (get stats :non-white-pixels))))
     '
-    echo "janet-otter-sdl render smoke ok"
+    echo "janet-otter-sdl gray shape render smoke ok"
 
     runHook postCheck
   '';

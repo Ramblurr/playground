@@ -74,21 +74,16 @@
           targetGlibc = armv7lPkgs.glibc;
           targetLibgcc = armv7lPkgs.stdenv.cc.cc.lib;
           bundledNativeLibPackages = [
-            janetFbinkBridgeKobo
             janetSkiaBridgeKobo
             skiaKobo
           ];
           bundledTreePackages = [
             sporkNetreplKobo
           ];
-          bundledPrograms = [
+          bundledJanetBundles = [
             {
-              name = "hello-fbink.janet";
-              src = ./res/scripts/hello-fbink.janet;
-            }
-            {
-              name = "hello-skia.janet";
-              src = ./res/scripts/hello-skia.janet;
+              name = "otter";
+              src = ./.;
             }
           ];
         };

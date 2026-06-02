@@ -17,11 +17,11 @@ PC_RPATHS = $(patsubst -L%,-Wl$(comma)-rpath$(comma)%,$(shell $(PKG_CONFIG) --li
 
 native: $(NATIVE_MODULE)
 
-$(NATIVE_MODULE): src/janet_otter_sdl.cc src/otter_skia_hello.cc src/otter_skia_hello.hh
+$(NATIVE_MODULE): src/janet_otter_sdl.cc src/otter_drawing_backend.cc src/otter_drawing_backend.hh
 	mkdir -p $(BUILD_DIR)
 	$(CXX) $(WARN_CXXFLAGS) $(OPT_CXXFLAGS) $(CPPFLAGS) $(CXXFLAGS) $(PC_CFLAGS) \
 		-shared -o $@ \
-		src/janet_otter_sdl.cc src/otter_skia_hello.cc \
+		src/janet_otter_sdl.cc src/otter_drawing_backend.cc \
 		$(LDFLAGS) $(PC_RPATHS) $(PC_LIBS)
 
 test: $(NATIVE_MODULE)

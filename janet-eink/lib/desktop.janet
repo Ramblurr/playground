@@ -55,14 +55,46 @@
   [name]
   (((module) name) :value))
 
-(defn render-hello-self-test
+(defn create
+  [&opt width height]
+  ((native-fn 'create) (or width default-width) (or height default-height)))
+
+(defn clear
+  [canvas gray]
+  ((native-fn 'clear) canvas gray))
+
+(defn draw-rect
+  [canvas x y width height gray]
+  ((native-fn 'draw-rect) canvas x y width height gray))
+
+(defn draw-round-rect
+  [canvas x y width height radius gray]
+  ((native-fn 'draw-round-rect) canvas x y width height radius gray))
+
+(defn draw-triangle
+  [canvas x1 y1 x2 y2 x3 y3 gray]
+  ((native-fn 'draw-triangle) canvas x1 y1 x2 y2 x3 y3 gray))
+
+(defn draw-circle
+  [canvas cx cy radius gray]
+  ((native-fn 'draw-circle) canvas cx cy radius gray))
+
+(defn sample-gray
+  [canvas x y]
+  ((native-fn 'sample-gray) canvas x y))
+
+(defn stats
+  [canvas]
+  ((native-fn 'stats) canvas))
+
+(defn render-demo-self-test
   []
-  ((native-fn 'render-self-test) default-width default-height))
+  ((native-fn 'render-demo-self-test) default-width default-height))
 
 (defn fixed-viewport
   [output-width output-height]
   ((native-fn 'fixed-viewport) output-width output-height default-width default-height))
 
-(defn run-hello
+(defn run-demo
   []
-  ((native-fn 'run-hello) default-width default-height))
+  ((native-fn 'run-demo) default-width default-height))
