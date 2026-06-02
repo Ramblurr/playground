@@ -1,5 +1,6 @@
-(import ./platform :as platform)
+(import ./skia :as skia)
+(import ./demo/shapes :as shapes)
 
 (defn run
   [& args]
-  (platform/run-demo))
+  (skia/run-static shapes/draw))

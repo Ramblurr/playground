@@ -19,12 +19,14 @@
 ## Code map
 
 - `bin/otter` — Janet entrypoint; loads source modules or installed bundle modules.
+- `lib/skia.janet` — the single public Janet drawing API for canvases, primitives, text, PNG images, and presentation delegation.
 - `lib/platform.janet` — chooses `:desktop-sdl` on Linux dev hosts and `:kobo-fbink` on Kobo.
-- `lib/desktop.janet` — Janet wrapper for the SDL native module.
-- `lib/kobo.janet` — Janet wrapper for the Kobo Skia/FBInk native module.
-- `src/otter_drawing_backend.*` — shared gray8 Skia drawing backend for rectangles, rounded rectangles, triangles, circles, demo scene, stats, and RGBA conversion.
-- `src/janet_otter_sdl.cc` — SDL desktop backend; opens a window and presents a fixed `1680x1264` Kobo canvas centered in the actual compositor window, clipping rather than scaling.
-- `src/janet_skia.cc` — Kobo backend; exposes the same drawing primitives and presents gray8 buffers via FBInk.
+- `lib/platform/desktop.janet` — narrow SDL provider: native loading, screen size, presentation, and desktop helpers.
+- `lib/platform/kobo.janet` — narrow Kobo provider: native loading, framebuffer size, and FBInk presentation.
+- `lib/demo/shapes.janet` — Janet-owned grayscale geometry demo using `lib/skia.janet`.
+- `src/otter_drawing_backend.*` — shared gray8 Skia drawing backend for rectangles, rounded rectangles, paths, images, text, stats, and RGBA conversion.
+- `src/janet_otter_sdl.cc` — SDL desktop presenter; registers common drawing bindings and presents a fixed `1680x1264` Kobo canvas centered in the compositor window, clipping rather than scaling.
+- `src/janet_skia.cc` — Kobo presenter; registers common drawing bindings and presents gray8 buffers via FBInk.
 
 ## Bundle shape
 

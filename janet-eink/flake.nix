@@ -21,6 +21,10 @@
 
       jeep = pkgs.callPackage ./nix/pkgs/jeep/package.nix { };
 
+      otterFonts = pkgs.callPackage ./nix/pkgs/otter-fonts/package.nix {
+        inherit (pkgs) noto-fonts;
+      };
+
       janetOtterSdl = pkgs.callPackage ./nix/pkgs/janet-otter-sdl/package.nix {
         src = ./.;
         janet = pkgs.janet;
@@ -62,6 +66,7 @@
         default = armv7lPkgs.janet;
         jeep = jeep;
         janet-otter-sdl = janetOtterSdl;
+        otter-fonts = otterFonts;
         janet-armv7l = armv7lPkgs.janet;
         fbink-kobo = fbinkKobo;
         janet-fbink-bridge-kobo = janetFbinkBridgeKobo;
@@ -78,6 +83,7 @@
             skiaKobo
           ];
           bundledTreePackages = [
+            otterFonts
             sporkNetreplKobo
           ];
           bundledJanetBundles = [
@@ -100,18 +106,21 @@
           pkgs.skia
           jeep
           janetOtterSdl
+          otterFonts
         ];
 
         shellHook = ''
           #export JANET_EINK_JPM_TREE="$PWD/.dev-jpm-tree"
           #export PATH="$JANET_EINK_JPM_TREE/bin:$PATH"
           #export JANET_PATH="$JANET_EINK_JPM_TREE/lib''${JANET_PATH:+:$JANET_PATH}"
-          export OTTER_DESKTOP_NATIVE_FALLBACK="${janetOtterSdl}/lib/janet-otter-sdl.so"
+          export OTTER_SKIA_NATIVE="${janetOtterSdl}/lib/janet-skia.so"
+          export OTTER_FONT_DIR="${otterFonts}/share/otter/fonts"
           echo "Janet dev shell"
           echo "  janet: $(command -v janet)"
           echo "  jpm:   $(command -v jpm)"
           echo "  jeep:  $(command -v jeep)"
-          echo "  sdl native fallback: $OTTER_DESKTOP_NATIVE_FALLBACK"
+          echo "  skia native: $OTTER_SKIA_NATIVE"
+          echo "  font dir: $OTTER_FONT_DIR"
           #echo "  local JPM tree: $JANET_EINK_JPM_TREE"
           #if [ ! -x "$JANET_EINK_JPM_TREE/bin/janet-netrepl" ]; then
           #  echo "  spork netrepl not installed yet; run:"

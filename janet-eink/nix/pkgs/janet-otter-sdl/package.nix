@@ -40,21 +40,29 @@ stdenv.mkDerivation {
 
     export LD_LIBRARY_PATH="$PWD/build:${janet}/lib:${SDL2}/lib:${skia}/lib''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     ${janet}/bin/janet -e '
-      (def desktop-module (native "./build/janet-otter-sdl.so"))
-      (def render-demo-self-test ((desktop-module (quote render-demo-self-test)) :value))
-      (def stats (render-demo-self-test))
-      (unless (= 1680 (get stats :width))
-        (error (string/format "expected width 1680, got %v" (get stats :width))))
-      (unless (= 1264 (get stats :height))
-        (error (string/format "expected height 1264, got %v" (get stats :height))))
+      (def skia-module (native "./build/janet-skia.so"))
+      (def create ((skia-module (quote create)) :value))
+      (def clear ((skia-module (quote clear)) :value))
+      (def draw-rect ((skia-module (quote draw-rect)) :value))
+      (def draw-rounded-rect ((skia-module (quote draw-rounded-rect)) :value))
+      (def sample-gray ((skia-module (quote sample-gray)) :value))
+      (def stats-fn ((skia-module (quote stats)) :value))
+      (def present-binding (skia-module (quote present)))
+      (when (nil? present-binding)
+        (error "expected desktop skia native module to export present"))
+      (def canvas (create 32 32))
+      (clear canvas 255)
+      (draw-rect canvas 4 4 8 8 96)
+      (draw-rounded-rect canvas 16 16 8 8 2 32)
+      (unless (= 96 (sample-gray canvas 6 6))
+        (error "expected primitive draw smoke to mutate gray8 pixels"))
+      (unless (= 32 (sample-gray canvas 18 18))
+        (error "expected rounded rectangle smoke to mutate gray8 pixels"))
+      (def stats (stats-fn canvas))
       (unless (= :gray8 (get stats :pixel-format))
         (error (string/format "expected gray8 pixel format, got %v" (get stats :pixel-format))))
-      (unless (>= (get stats :gray-shades) 8)
-        (error (string/format "expected at least 8 gray shades, got %d" (get stats :gray-shades))))
-      (unless (> (get stats :non-white-pixels) 200000)
-        (error (string/format "expected Skia render smoke to draw geometry, got %d non-white pixels" (get stats :non-white-pixels))))
     '
-    echo "janet-otter-sdl gray shape render smoke ok"
+    echo "janet-skia desktop primitive smoke ok"
 
     runHook postCheck
   '';
@@ -63,7 +71,7 @@ stdenv.mkDerivation {
     runHook preInstall
 
     mkdir -p "$out/lib"
-    cp build/janet-otter-sdl.so "$out/lib/"
+    cp build/janet-skia.so "$out/lib/"
 
     runHook postInstall
   '';

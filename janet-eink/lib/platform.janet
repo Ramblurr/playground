@@ -1,5 +1,5 @@
-(import ./desktop :as desktop)
-(import ./kobo :as kobo)
+(import ./platform/desktop :as desktop)
+(import ./platform/kobo :as kobo)
 
 (defn- directory?
   [path]
@@ -21,10 +21,26 @@
     (kobo?) :kobo-fbink
     :else :desktop-sdl))
 
-(defn run-demo
-  []
-  (def backend (detect))
+(defn provider
+  [&opt backend]
+  (def selected (or backend (detect)))
   (cond
-    (= backend :desktop-sdl) (desktop/run-demo)
-    (= backend :kobo-fbink) (kobo/run-demo)
-    :else (error (string "unsupported Otter backend: " backend))))
+    (= selected :desktop-sdl) (desktop/provider)
+    (= selected :kobo-fbink) (kobo/provider)
+    :else (error (string "unsupported Otter backend: " selected))))
+
+(defn native-fn
+  [name]
+  (((provider) :native-fn) name))
+
+(defn screen-size
+  []
+  (((provider) :screen-size)))
+
+(defn present
+  [canvas &opt options]
+  (((provider) :present) canvas (or options @{})))
+
+(defn run-static
+  [draw &opt options]
+  (((provider) :run-static) draw (or options @{})))
