@@ -32,6 +32,14 @@
         stdenv = armv7lPkgs.clangStdenv;
       };
 
+      janetSkiaBridgeKobo = armv7lPkgs.callPackage ./nix/pkgs/janet-skia-bridge/package.nix {
+        stdenv = armv7lPkgs.clangStdenv;
+        src = ./.;
+        janet = armv7lPkgs.janet;
+        fbink = fbinkKobo;
+        skia = skiaKobo;
+      };
+
       sporkNetreplKobo = armv7lPkgs.callPackage ./nix/pkgs/spork-netrepl/package.nix {
         inherit koboInstallPath;
         src = spork-src;
@@ -45,6 +53,7 @@
         fbink-kobo = fbinkKobo;
         janet-fbink-bridge-kobo = janetFbinkBridgeKobo;
         skia-kobo = skiaKobo;
+        janet-skia-bridge-kobo = janetSkiaBridgeKobo;
         spork-netrepl-kobo = sporkNetreplKobo;
         kobo-bundle = pkgs.callPackage ./nix/pkgs/janet-kobo-bundle/package.nix {
           inherit koboInstallPath;
@@ -53,6 +62,7 @@
           targetLibgcc = armv7lPkgs.stdenv.cc.cc.lib;
           bundledNativeLibPackages = [
             janetFbinkBridgeKobo
+            janetSkiaBridgeKobo
             skiaKobo
           ];
           bundledTreePackages = [
@@ -62,6 +72,10 @@
             {
               name = "hello-fbink.janet";
               src = ./scripts/hello-fbink.janet;
+            }
+            {
+              name = "hello-skia.janet";
+              src = ./scripts/hello-skia.janet;
             }
           ];
         };

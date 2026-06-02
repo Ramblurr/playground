@@ -11,6 +11,7 @@
 - `.#janet-armv7l` — cross-built `pkgs.janet` for ARMv7l.
 - `.#fbink-kobo` — Kobo FBInk build copied from `../clojure-eink` pattern.
 - `.#janet-fbink-bridge-kobo` — Janet native module exposing simple FBInk calls.
+- `.#janet-skia-bridge-kobo` — Janet native module rendering the Skia hello demo and presenting via FBInk.
 - `.#skia-kobo` — ARMv7l Skia raster/text libs copied from `../clojure-eink`.
 - `.#kobo-bundle` — self-contained Kobo runtime bundle of everything
 
@@ -26,9 +27,11 @@ Important files:
 
 - `bin/janet`
 - `lib/janet-fbink.so`
+- `lib/janet-skia.so`
 - `lib/libfbink.so.1`
 - `lib/libskia.so`, `lib/libskparagraph.so`, `lib/libskshaper.so`, `libskunicode_*`
 - `share/janet-eink/hello-fbink.janet`
+- `share/janet-eink/hello-skia.janet`
 
 `nix/pkgs/janet-kobo-bundle/package.nix` accepts:
 
@@ -50,9 +53,11 @@ Smoke checks:
 ```sh
 ssh root@kobo-lan 'cd /mnt/onboard/janet-eink-demo/janet && ./bin/janet -v'
 ssh root@kobo-lan 'cd /mnt/onboard/janet-eink-demo/janet && ./bin/janet share/janet-eink/hello-fbink.janet'
+ssh root@kobo-lan 'cd /mnt/onboard/janet-eink-demo/janet && ./bin/janet share/janet-eink/hello-skia.janet'
 ```
 
 Expected FBInk smoke exits `0` and prints `Hello Janet!` centered on screen.
+Expected Skia smoke exits `0` and renders a white full-screen bitmap with centered black `Hello Skia!` block text and a black rectangle.
 
 ## Local dev shell
 
