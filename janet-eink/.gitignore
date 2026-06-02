@@ -1,0 +1,13 @@
+.direnv/
+*.pid
+prompts/
+archive/
+.dev-jpm-tree/
+jpm_tree/
+build/
+target/
+result
+result-*
+*.log
+.netrepl-local.pid
+.netrepl-local.log

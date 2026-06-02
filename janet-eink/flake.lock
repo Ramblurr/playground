@@ -1,0 +1,51 @@
+{
+  "nodes": {
+    "fbink-src": {
+      "flake": false,
+      "locked": {
+        "narHash": "sha256-I6h5XVT/OPMBP/0vjOcTWbb8n8OkR/4Itj6//dKcAhc=",
+        "path": "/home/ramblurr/src/github.com/NiLuJe/FBInk",
+        "type": "path"
+      },
+      "original": {
+        "path": "/home/ramblurr/src/github.com/NiLuJe/FBInk",
+        "type": "path"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1780243769,
+        "narHash": "sha256-x5UQuRsH3MqI0U9afaXSNqzTPSeZlRLvFAav2Ux1pNw=",
+        "rev": "331800de5053fcebacf6813adb5db9c9dca22a0c",
+        "revCount": 1008282,
+        "type": "tarball",
+        "url": "https://api.flakehub.com/f/pinned/NixOS/nixpkgs/0.1.1008282%2Brev-331800de5053fcebacf6813adb5db9c9dca22a0c/019e84d0-47d2-7d13-b395-58915b220eac/source.tar.gz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://flakehub.com/f/NixOS/nixpkgs/0.1"
+      }
+    },
+    "root": {
+      "inputs": {
+        "fbink-src": "fbink-src",
+        "nixpkgs": "nixpkgs",
+        "spork-src": "spork-src"
+      }
+    },
+    "spork-src": {
+      "flake": false,
+      "locked": {
+        "narHash": "sha256-hO1mgLvolKoANb+30zQQp9uh1JfKfOa0OFsSLqAt6Dk=",
+        "path": "/home/ramblurr/src/github.com/janet-lang/spork",
+        "type": "path"
+      },
+      "original": {
+        "path": "/home/ramblurr/src/github.com/janet-lang/spork",
+        "type": "path"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
