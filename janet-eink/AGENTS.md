@@ -14,6 +14,17 @@
 - `.#janet-skia-bridge-kobo` — Janet native module rendering the Skia hello demo and presenting via FBInk.
 - `.#skia-kobo` — ARMv7l Skia raster/text libs copied from `../clojure-eink`.
 - `.#kobo-bundle` — self-contained Kobo runtime bundle of everything
+- `.#janet-otter-sdl` — local x86_64 Janet native module presenting the fixed Kobo Skia canvas through SDL.
+
+## Code map
+
+- `bin/otter` — Janet entrypoint; loads source modules or installed bundle modules.
+- `lib/platform.janet` — chooses `:desktop-sdl` on Linux dev hosts and `:kobo-fbink` on Kobo.
+- `lib/desktop.janet` — Janet wrapper for the SDL native module.
+- `lib/kobo.janet` — Janet wrapper for the Kobo Skia/FBInk native module.
+- `src/otter_skia_hello.*` — shared Skia software renderer for the hello demo.
+- `src/janet_otter_sdl.cc` — SDL desktop backend; opens a window and presents a fixed `1680x1264` Kobo canvas centered in the actual compositor window, clipping rather than scaling.
+- `src/janet_skia.cc` — Kobo backend; renders with Skia and presents via FBInk.
 
 ## Bundle shape
 
@@ -67,11 +78,12 @@ Enter:
 nix develop
 ```
 
-Dev shell tools: `janet`, `jpm`, `gcc`, `jeep`.
+Dev shell tools: `janet`, `jpm`, `gcc`, `make`, `pkg-config`, `SDL2`, `skia`, `jeep`.
 
 Run Otter from source:
 
 ```sh
+make native
 ./bin/otter
 ```
 

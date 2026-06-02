@@ -59,6 +59,10 @@
   []
   ((native-fn 'render-self-test) default-width default-height))
 
+(defn fixed-viewport
+  [output-width output-height]
+  ((native-fn 'fixed-viewport) output-width output-height default-width default-height))
+
 (defn run-hello
   []
   ((native-fn 'run-hello) default-width default-height))

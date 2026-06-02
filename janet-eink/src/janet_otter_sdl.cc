@@ -15,6 +15,13 @@ struct Dimensions {
     int height = otter::kKoboScreenHeight;
 };
 
+struct CanvasRect {
+    int x = 0;
+    int y = 0;
+    int width = otter::kKoboScreenWidth;
+    int height = otter::kKoboScreenHeight;
+};
+
 Dimensions get_dimensions(int32_t argc, Janet *argv) {
     janet_arity(argc, 0, 2);
     Dimensions dimensions;
@@ -30,12 +37,30 @@ Dimensions get_dimensions(int32_t argc, Janet *argv) {
     return dimensions;
 }
 
+CanvasRect fixed_canvas_rect(int output_width, int output_height, const Dimensions &canvas) {
+    CanvasRect rect;
+    rect.x = (output_width - canvas.width) / 2;
+    rect.y = (output_height - canvas.height) / 2;
+    rect.width = canvas.width;
+    rect.height = canvas.height;
+    return rect;
+}
+
 Janet make_stats_table(const Dimensions &dimensions, const otter::RenderStats &stats) {
     JanetTable *table = janet_table(4);
     janet_table_put(table, janet_ckeywordv("width"), janet_wrap_integer(dimensions.width));
     janet_table_put(table, janet_ckeywordv("height"), janet_wrap_integer(dimensions.height));
     janet_table_put(table, janet_ckeywordv("text"), janet_cstringv(otter::kDesktopHelloSkiaText));
     janet_table_put(table, janet_ckeywordv("black-pixels"), janet_wrap_integer(stats.black_pixels));
+    return janet_wrap_table(table);
+}
+
+Janet make_rect_table(const CanvasRect &rect) {
+    JanetTable *table = janet_table(4);
+    janet_table_put(table, janet_ckeywordv("x"), janet_wrap_integer(rect.x));
+    janet_table_put(table, janet_ckeywordv("y"), janet_wrap_integer(rect.y));
+    janet_table_put(table, janet_ckeywordv("width"), janet_wrap_integer(rect.width));
+    janet_table_put(table, janet_ckeywordv("height"), janet_wrap_integer(rect.height));
     return janet_wrap_table(table);
 }
 
@@ -88,7 +113,8 @@ void cleanup_sdl(SDL_Texture *texture, SDL_Renderer *renderer, SDL_Window *windo
     janet_panicf("%s", message);
 }
 
-bool present_bitmap(SDL_Renderer *renderer, SDL_Texture *texture, const SkBitmap &bitmap) {
+bool present_bitmap(
+    SDL_Renderer *renderer, SDL_Texture *texture, const SkBitmap &bitmap, const Dimensions &canvas_dimensions) {
     const void *pixels = bitmap.getPixels();
     if (pixels == nullptr) {
         return false;
@@ -96,13 +122,22 @@ bool present_bitmap(SDL_Renderer *renderer, SDL_Texture *texture, const SkBitmap
     if (SDL_UpdateTexture(texture, nullptr, pixels, static_cast<int>(bitmap.rowBytes())) != 0) {
         return false;
     }
-    if (SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255) != 0) {
+
+    int output_width = 0;
+    int output_height = 0;
+    if (SDL_GetRendererOutputSize(renderer, &output_width, &output_height) != 0) {
+        return false;
+    }
+    const CanvasRect canvas = fixed_canvas_rect(output_width, output_height, canvas_dimensions);
+    const SDL_Rect destination = {canvas.x, canvas.y, canvas.width, canvas.height};
+
+    if (SDL_SetRenderDrawColor(renderer, 64, 64, 64, 255) != 0) {
         return false;
     }
     if (SDL_RenderClear(renderer) != 0) {
         return false;
     }
-    if (SDL_RenderCopy(renderer, texture, nullptr, nullptr) != 0) {
+    if (SDL_RenderCopy(renderer, texture, nullptr, &destination) != 0) {
         return false;
     }
     SDL_RenderPresent(renderer);
@@ -121,6 +156,29 @@ static Janet cfun_render_self_test(int32_t argc, Janet *argv) {
         janet_panicf("Skia render allocation failed for dimensions: %dx%d", dimensions.width, dimensions.height);
     }
     return make_stats_table(dimensions, stats);
+}
+
+static Janet cfun_fixed_viewport(int32_t argc, Janet *argv) {
+    janet_arity(argc, 2, 4);
+    const int output_width = janet_getinteger(argv, 0);
+    const int output_height = janet_getinteger(argv, 1);
+    if (output_width <= 0 || output_height <= 0) {
+        janet_panicf("invalid SDL render output dimensions: %dx%d", output_width, output_height);
+    }
+
+    Dimensions canvas_dimensions;
+    if (argc >= 3) {
+        canvas_dimensions.width = janet_getinteger(argv, 2);
+    }
+    if (argc >= 4) {
+        canvas_dimensions.height = janet_getinteger(argv, 3);
+    }
+    if (canvas_dimensions.width <= 0 || canvas_dimensions.height <= 0) {
+        janet_panicf(
+            "invalid fixed canvas dimensions: %dx%d", canvas_dimensions.width, canvas_dimensions.height);
+    }
+
+    return make_rect_table(fixed_canvas_rect(output_width, output_height, canvas_dimensions));
 }
 
 static Janet cfun_run_hello(int32_t argc, Janet *argv) {
@@ -167,9 +225,6 @@ static Janet cfun_run_hello(int32_t argc, Janet *argv) {
         panic_sdl("SDL_CreateRenderer", texture, renderer, window, sdl_initialized);
     }
 
-    if (SDL_RenderSetLogicalSize(renderer, dimensions.width, dimensions.height) != 0) {
-        panic_sdl("SDL_RenderSetLogicalSize", texture, renderer, window, sdl_initialized);
-    }
 
     texture = SDL_CreateTexture(
         renderer,
@@ -187,7 +242,7 @@ static Janet cfun_run_hello(int32_t argc, Janet *argv) {
         panic_after_cleanup("Skia render allocation failed", texture, renderer, window, sdl_initialized);
     }
 
-    if (!present_bitmap(renderer, texture, bitmap)) {
+    if (!present_bitmap(renderer, texture, bitmap, dimensions)) {
         panic_sdl("SDL present", texture, renderer, window, sdl_initialized);
     }
 
@@ -211,7 +266,7 @@ static Janet cfun_run_hello(int32_t argc, Janet *argv) {
                 if (event.window.event == SDL_WINDOWEVENT_EXPOSED ||
                     event.window.event == SDL_WINDOWEVENT_RESIZED ||
                     event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
-                    if (!present_bitmap(renderer, texture, bitmap)) {
+                    if (!present_bitmap(renderer, texture, bitmap, dimensions)) {
                         panic_sdl("SDL present", texture, renderer, window, sdl_initialized);
                     }
                 }
@@ -230,6 +285,11 @@ static const JanetReg cfuns[] = {
         "render-self-test", cfun_render_self_test,
         "(desktop/render-self-test &opt width height)\n\n"
         "Render the Hello Skia demo off-screen and return render statistics."
+    },
+    {
+        "fixed-viewport", cfun_fixed_viewport,
+        "(desktop/fixed-viewport output-width output-height &opt canvas-width canvas-height)\n\n"
+        "Return the fixed Kobo canvas rectangle centered in an SDL render output."
     },
     {
         "run-hello", cfun_run_hello,

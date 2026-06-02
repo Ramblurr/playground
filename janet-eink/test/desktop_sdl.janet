@@ -15,4 +15,20 @@
              observed)
       "desktop SDL backend renders the Kobo-sized Hello Skia buffer"))
 
+(deftest desktop-sdl-centers-a-fixed-kobo-canvas-in-any-render-output
+  (def large (desktop/fixed-viewport 2000 1400))
+  (def small (desktop/fixed-viewport 1000 800))
+  (is (deep= @{:x 160
+               :y 68
+               :width 1680
+               :height 1264}
+             large)
+      "larger compositor windows center the fixed Kobo canvas without scaling")
+  (is (deep= @{:x -340
+               :y -232
+               :width 1680
+               :height 1264}
+             small)
+      "smaller compositor windows clip a fixed Kobo canvas instead of scaling it"))
+
 (run-tests!)
