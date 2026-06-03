@@ -41,16 +41,15 @@
 
 (defn default-font-dir
   []
-  (def env (os/getenv "OTTER_FONT_DIR"))
-  (if (font-dir? env)
-    env
-    (do
-      (def source-bundled (string (source-root) "/share/otter/fonts"))
-      (def install-bundled (string (install-root) "/share/otter/fonts"))
-      (cond
-        (font-dir? source-bundled) source-bundled
-        (font-dir? install-bundled) install-bundled
-        :else nil))))
+  (let [env (os/getenv "OTTER_FONT_DIR")]
+    (if (font-dir? env)
+      env
+      (let [source-bundled (string (source-root) "/share/otter/fonts")
+            install-bundled (string (install-root) "/share/otter/fonts")]
+        (cond
+          (font-dir? source-bundled) source-bundled
+          (font-dir? install-bundled) install-bundled
+          :else nil)))))
 
 (defn- font-dir-value
   [opts]
@@ -108,20 +107,19 @@
 
 (defn- font-features-string
   [opts]
-  (def value (get opts :font-features nil))
-  (cond
-    (nil? value) ""
-    (string? value) value
-    (or (= :array (type value)) (= :tuple (type value)))
-    (do
-      (def parts @[])
-      (each feature value
-        (unless (string? feature)
-          (error (string "font-features expects strings, got " (type feature))))
-        (array/push parts feature))
-      (string/join parts " "))
-    :else
-    (error (string "font-features expects a string or array/tuple of strings, got " (type value)))))
+  (let [value (get opts :font-features nil)]
+    (cond
+      (nil? value) ""
+      (string? value) value
+      (or (= :array (type value)) (= :tuple (type value)))
+      (let [parts @[]]
+        (each feature value
+          (unless (string? feature)
+            (error (string "font-features expects strings, got " (type feature))))
+          (array/push parts feature))
+        (string/join parts " "))
+      :else
+      (error (string "font-features expects a string or array/tuple of strings, got " (type value))))))
 
 
 (defn screen-size
@@ -168,26 +166,26 @@
 
 (defn- quantize-gray-levels
   [name opts]
-  (def levels (get opts :quantize-gray-levels 0))
-  (if (nil? levels) 0 levels))
+  (let [levels (get opts :quantize-gray-levels 0)]
+    (if (nil? levels) 0 levels)))
 
 (defn- dither-mode
   [name opts auto-mode]
-  (def mode (get opts :dither :none))
-  (case mode
-    nil :none
-    :none :none
-    :ordered :ordered
-    :auto auto-mode
-    (error (string name " :dither must be :none, :ordered, or :auto"))))
+  (let [mode (get opts :dither :none)]
+    (case mode
+      nil :none
+      :none :none
+      :ordered :ordered
+      :auto auto-mode
+      (error (string name " :dither must be :none, :ordered, or :auto")))))
 
 (defn- conversion-options
   [name opts auto-mode]
-  (def options (or opts @{}))
-  (unless (dict? options)
-    (error (string name " expects an options table")))
-  @{:quantize-gray-levels (quantize-gray-levels name options)
-    :dither (dither-mode name options auto-mode)})
+  (let [options (or opts @{})]
+    (unless (dict? options)
+      (error (string name " expects an options table")))
+    @{:quantize-gray-levels (quantize-gray-levels name options)
+      :dither (dither-mode name options auto-mode)}))
 (defn- draw-paints
   [name opts]
   (let [options (ensure-draw-options name opts)]
@@ -266,15 +264,15 @@
   [points]
   (unless (or (= :array (type points)) (= :tuple (type points)))
     (error "points must be an array or tuple of [x y] pairs"))
-  (def flat @[])
-  (each point points
-    (unless (point-pair? point)
-      (error "each point must be a two-element [x y] pair"))
-    (array/push flat (get point 0))
-    (array/push flat (get point 1)))
-  (when (< (length flat) 4)
-    (error "draw-path requires at least two points"))
-  flat)
+  (let [flat @[]]
+    (each point points
+      (unless (point-pair? point)
+        (error "each point must be a two-element [x y] pair"))
+      (array/push flat (get point 0))
+      (array/push flat (get point 1)))
+    (when (< (length flat) 4)
+      (error "draw-path requires at least two points"))
+    flat))
 
 (defn draw-line
   [canvas x1 y1 x2 y2 opts]
@@ -307,16 +305,16 @@
 
 (defn shape-text
   [canvas text &opt opts]
-  (def options (or opts @{}))
-  ((native-fn 'shape-text)
-    canvas
-    text
-    (family-name (get options :font-family nil))
-    (font-size-value options)
-    (font-weight-value options)
-    (font-width-value options)
-    (font-slant-value options)
-    (font-features-string options)))
+  (let [options (or opts @{})]
+    ((native-fn 'shape-text)
+      canvas
+      text
+      (family-name (get options :font-family nil))
+      (font-size-value options)
+      (font-weight-value options)
+      (font-width-value options)
+      (font-slant-value options)
+      (font-features-string options))))
 
 (defn text-line-metrics
   [text-line]
@@ -489,23 +487,23 @@
 
 (defmacro with-save
   [canvas & body]
-  (def c (gensym))
-  (def result (gensym))
-  ~(let [,c ,canvas]
-     (skia/save ,c)
-     (def ,result (protect (do ,;body)))
-     (skia/restore ,c)
-     (if (get ,result 0)
-       (get ,result 1)
-       (error (get ,result 1)))))
+  (let [c (gensym)
+        result (gensym)]
+    ~(let [,c ,canvas]
+       (skia/save ,c)
+       (let [,result (protect (do ,;body))]
+         (skia/restore ,c)
+         (if (get ,result 0)
+           (get ,result 1)
+           (error (get ,result 1)))))))
 
 (defmacro with-clip-rect
   [canvas x y w h & body]
-  (def c (gensym))
-  ~(let [,c ,canvas]
-     (skia/with-save ,c
-                     (skia/clip-rect ,c ,x ,y ,w ,h)
-                     ,;body)))
+  (let [c (gensym)]
+    ~(let [,c ,canvas]
+       (skia/with-save ,c
+                       (skia/clip-rect ,c ,x ,y ,w ,h)
+                       ,;body))))
 
 (defn sample-gray
   [canvas x y]
