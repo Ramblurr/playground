@@ -1,7 +1,7 @@
 {
   stdenvNoCC,
   janet,
-  fetchFromGitHub,
+  janet-spork,
 }:
 
 stdenvNoCC.mkDerivation {
@@ -10,24 +10,16 @@ stdenvNoCC.mkDerivation {
 
   src = ./.;
 
-  sporkSrc = fetchFromGitHub {
-    owner = "janet-lang";
-    repo = "spork";
-    rev = "993887a8dbc9387af3b037418f02ef8e2b42b275";
-    hash = "sha256-4oKmRjwDMRwlnntHOh3k2XG3pNxQ239Hgvw7zlokoCQ=";
-  };
-
   dontConfigure = true;
   dontBuild = true;
 
   installPhase = ''
     runHook preInstall
 
-    install -Dm644 "$sporkSrc/spork/fmt.janet" "$out/share/janet/spork/fmt.janet"
     install -Dm755 jfmt.janet "$out/bin/jfmt"
     substituteInPlace "$out/bin/jfmt" \
       --replace-fail '#!/usr/bin/env janet' '#!${janet}/bin/janet' \
-      --replace-fail '@jfmtSyspath@' "$out/share/janet"
+      --replace-fail '@jfmtSyspath@' "${janet-spork}/share/janet"
 
     runHook postInstall
   '';

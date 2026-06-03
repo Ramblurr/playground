@@ -1,61 +1,28 @@
 {
-  stdenv,
-  janet,
+  stdenvNoCC,
+  janet-spork,
   koboInstallPath ? "/mnt/onboard/janet-eink-demo/janet",
-  fetchFromGitHub,
 }:
 
-stdenv.mkDerivation {
+stdenvNoCC.mkDerivation {
   pname = "spork-netrepl";
-  version = "1.2.0";
-  src = fetchFromGitHub {
-    owner = "janet-lang";
-    repo = "spork";
-    rev = "993887a8dbc9387af3b037418f02ef8e2b42b275";
-    hash = "sha256-4oKmRjwDMRwlnntHOh3k2XG3pNxQ239Hgvw7zlokoCQ=";
-  };
+  version = janet-spork.version or "1.2.0";
 
-  strictDeps = true;
-
-  buildInputs = [ janet ];
-
-  buildPhase = ''
-    runHook preBuild
-
-    $CC -std=c99 -Wall -Wextra -O2 -fPIC \
-      -I ${janet}/include \
-      -shared -o rawterm.so \
-      src/rawterm.c
-
-    runHook postBuild
-  '';
+  dontUnpack = true;
+  dontConfigure = true;
+  dontBuild = true;
 
   installPhase = ''
     runHook preInstall
 
-    mkdir -p "$out/bin" "$out/share/janet/spork"
+    mkdir -p "$out/bin" "$out/share/janet"
+    cp -RL ${janet-spork}/share/janet/. "$out/share/janet/"
 
-    for module in \
-      argparse \
-      ev-utils \
-      generators \
-      getline \
-      msg \
-      netrepl; do
-      install -Dm644 "spork/$module.janet" "$out/share/janet/spork/$module.janet"
-    done
-
-    install -Dm755 rawterm.so "$out/share/janet/spork/rawterm.so"
-
-    install -Dm755 bin/janet-netrepl "$out/bin/janet-netrepl"
-    substituteInPlace "$out/bin/janet-netrepl" \
-      --replace-fail '#!/usr/bin/env janet' '#!${koboInstallPath}/bin/janet'
+    install -Dm755 ${janet-spork}/share/janet-spork/bin/janet-netrepl "$out/bin/janet-netrepl"
+    sed -i '1s|^#!.*|#!${koboInstallPath}/bin/janet|' "$out/bin/janet-netrepl"
     sed -i '2i(put root-env :syspath "${koboInstallPath}/share/janet")' "$out/bin/janet-netrepl"
 
     runHook postInstall
-  '';
-  postFixup = ''
-    sed -i '1s|^#!.*|#!${koboInstallPath}/bin/janet|' "$out/bin/janet-netrepl"
   '';
 
 }
