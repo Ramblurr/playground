@@ -24,10 +24,42 @@
     :height (get fb-size :height)
     :pixel-format :gray8})
 
+(def capabilities
+  @{:invert-output? true
+    :night-mode? false
+    :hardware-night-mode? false})
+
+(defn- dict?
+  [value]
+  (or (= :table (type value)) (= :struct (type value))))
+
+(defn- bool-option
+  [opts key default]
+  (if (dict? opts)
+    (let [value (get opts key nil)]
+      (cond
+        (nil? value) default
+        (or (= true value) (= false value)) value
+        :else (error (string key " must be a boolean"))))
+    default))
+
+(defn present-options
+  [&opt options]
+  (let [opts (or options @{})
+        flash? (bool-option opts :flash? true)
+        invert-output? (bool-option opts :invert-output? false)
+        night-mode? (bool-option opts :night-mode? false)]
+    (when (and night-mode? (not (get capabilities :night-mode?)))
+      (error "Kobo hardware night mode is not enabled for this presenter"))
+    @{:flash? flash?
+      :invert-output? invert-output?
+      :night-mode? night-mode?
+      :full-refresh? (or invert-output? night-mode?)}))
+
 (defn present
   [canvas &opt options]
-  (def opts (or options @{}))
-  ((native-fn 'present) canvas (get opts :flash? true)))
+  (def opts (present-options options))
+  ((native-fn 'present) canvas (get opts :flash?) (get opts :invert-output?) (get opts :night-mode?)))
 
 (defn run-static
   [draw &opt options]
@@ -42,4 +74,6 @@
     :native-fn native-fn
     :screen-size screen-size
     :present present
-    :run-static run-static})
+    :present-options present-options
+    :run-static run-static
+    :capabilities capabilities})

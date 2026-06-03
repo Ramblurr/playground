@@ -24,7 +24,9 @@
     :native-fn? (= :function (type (get provider :native-fn)))
     :screen-size? (= :function (type (get provider :screen-size)))
     :present? (= :function (type (get provider :present)))
-    :run-static? (= :function (type (get provider :run-static)))})
+    :present-options? (= :function (type (get provider :present-options)))
+    :run-static? (= :function (type (get provider :run-static)))
+    :capabilities (get provider :capabilities)})
 
 (defn with-pixel-format-env
   [value thunk]
@@ -46,7 +48,11 @@
                    :native-fn? true
                    :screen-size? true
                    :present? true
-                   :run-static? true}
+                   :present-options? true
+                   :run-static? true
+                   :capabilities @{:invert-output? true
+                                   :night-mode? true
+                                   :hardware-night-mode? false}}
                  observed)
           "desktop provider exposes native loading, screen size, presentation, and run-static"))))
 
@@ -74,6 +80,33 @@
                        observed)
                 "desktop provider defaults to :rgba32 and supports OTTER_PIXEL_FORMAT overrides")))))))
 
+(deftest desktop-present-options-normalize-inversion-and-night-mode-seams
+  (let [desktop (require-module "../lib/platform/desktop")]
+    (when desktop
+      (let [present-options (module-value desktop 'present-options)]
+        (when present-options
+          (let [observed @{:default (present-options @{})
+                           :invert (present-options @{:invert-output? true :block? false})
+                           :night (present-options @{:night-mode? true})
+                           :invalid-invert-rejected? (not (get (protect (present-options @{:invert-output? "yes"})) 0))
+                           :invalid-night-rejected? (not (get (protect (present-options @{:night-mode? "yes"})) 0))}]
+            (is (deep= @{:default @{:block? true
+                                     :invert-output? false
+                                     :night-mode? false
+                                     :full-refresh? false}
+                         :invert @{:block? false
+                                   :invert-output? true
+                                   :night-mode? false
+                                   :full-refresh? true}
+                         :night @{:block? true
+                                  :invert-output? true
+                                  :night-mode? true
+                                  :full-refresh? true}
+                         :invalid-invert-rejected? true
+                         :invalid-night-rejected? true}
+                       observed)
+                "desktop present options expose output inversion/night-mode seams and reject non-booleans")))))))
+
 (deftest kobo-provider-returns-provider-table
   (def kobo (require-module "../lib/platform/kobo"))
   (when kobo
@@ -84,8 +117,34 @@
                    :native-fn? true
                    :screen-size? true
                    :present? true
-                   :run-static? true}
+                   :present-options? true
+                   :run-static? true
+                   :capabilities @{:invert-output? true
+                                   :night-mode? false
+                                   :hardware-night-mode? false}}
                  observed)
           "Kobo provider exposes native loading, screen size, presentation, and run-static"))))
+
+(deftest kobo-present-options-normalize-inversion-and-guard-night-mode
+  (let [kobo (require-module "../lib/platform/kobo")]
+    (when kobo
+      (let [present-options (module-value kobo 'present-options)]
+        (when present-options
+          (let [observed @{:default (present-options @{})
+                           :invert (present-options @{:invert-output? true :flash? false})
+                           :night-rejected? (not (get (protect (present-options @{:night-mode? true})) 0))
+                           :invalid-invert-rejected? (not (get (protect (present-options @{:invert-output? "yes"})) 0))}]
+            (is (deep= @{:default @{:flash? true
+                                     :invert-output? false
+                                     :night-mode? false
+                                     :full-refresh? false}
+                         :invert @{:flash? false
+                                   :invert-output? true
+                                   :night-mode? false
+                                   :full-refresh? true}
+                         :night-rejected? true
+                         :invalid-invert-rejected? true}
+                       observed)
+                "Kobo present options expose output inversion while guarding unverified hardware night mode")))))))
 
 (run-tests!)

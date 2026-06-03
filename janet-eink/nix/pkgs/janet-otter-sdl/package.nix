@@ -50,10 +50,16 @@ stdenv.mkDerivation {
       (def present-binding (skia-module (quote present)))
       (when (nil? present-binding)
         (error "expected desktop skia native module to export present"))
+      (defn fill-gray [gray]
+        (def value (/ gray 255.0))
+        @{:style :fill
+          :r value :g value :b value :a 1.0
+          :anti-alias? false
+          :skia-dither? false})
       (def canvas (create 32 32))
-      (clear canvas 255)
-      (draw-rect canvas 4 4 8 8 96)
-      (draw-rounded-rect canvas 16 16 8 8 2 32)
+      (clear canvas (fill-gray 255))
+      (draw-rect canvas 4 4 8 8 (fill-gray 96))
+      (draw-rounded-rect canvas 16 16 8 8 2 (fill-gray 32))
       (unless (= 96 (sample-gray canvas 6 6))
         (error "expected primitive draw smoke to mutate gray8 pixels"))
       (unless (= 32 (sample-gray canvas 18 18))

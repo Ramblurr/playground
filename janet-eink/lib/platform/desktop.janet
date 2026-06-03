@@ -69,12 +69,42 @@
     :height default-height
     :pixel-format (pixel-format)})
 
+(def capabilities
+  @{:invert-output? true
+    :night-mode? true
+    :hardware-night-mode? false})
+
+(defn- dict?
+  [value]
+  (or (= :table (type value)) (= :struct (type value))))
+
+(defn- bool-option
+  [opts key default]
+  (if (dict? opts)
+    (let [value (get opts key nil)]
+      (cond
+        (nil? value) default
+        (or (= true value) (= false value)) value
+        :else (error (string key " must be a boolean"))))
+    default))
+
+(defn present-options
+  [&opt options]
+  (let [opts (or options @{})
+        block? (bool-option opts :block? true)
+        night-mode? (bool-option opts :night-mode? false)
+        invert-output? (or night-mode? (bool-option opts :invert-output? false))]
+    @{:block? block?
+      :invert-output? invert-output?
+      :night-mode? night-mode?
+      :full-refresh? (or invert-output? night-mode?)}))
+
 (defn present
   [canvas &opt options]
   (def present-fn ((module) 'present))
   (unless present-fn
     (error "desktop native presenter does not yet export present"))
-  ((get present-fn :value) canvas (or options @{})))
+  ((get present-fn :value) canvas (present-options options)))
 
 (defn fixed-viewport
   [output-width output-height]
@@ -85,7 +115,7 @@
   (let [size (screen-size)
         canvas ((native-fn 'create) (get size :width) (get size :height) (get size :pixel-format))]
     (draw canvas)
-    (present canvas (or options @{}))))
+    (present canvas (present-options options))))
 
 (defn provider
   []
@@ -93,5 +123,7 @@
     :native-fn native-fn
     :screen-size screen-size
     :present present
+    :present-options present-options
     :run-static run-static
-    :fixed-viewport fixed-viewport})
+    :fixed-viewport fixed-viewport
+    :capabilities capabilities})

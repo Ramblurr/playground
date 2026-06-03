@@ -57,7 +57,7 @@ Dimensions framebuffer_dimensions() {
     return Dimensions{static_cast<int>(target_width), static_cast<int>(target_height)};
 }
 
-int present_canvas_to_fbink(const otter::RasterCanvas &canvas, bool flash) {
+int present_canvas_to_fbink(const otter::RasterCanvas &canvas, bool flash, bool invert_output, bool night_mode) {
     if (canvas.pixel_format() != otter::PixelFormat::Gray8) {
         janet_panicf("Kobo FBInk presenter currently requires :gray8 canvas, got :%s", otter::pixel_format_name(canvas.pixel_format()));
     }
@@ -67,6 +67,8 @@ int present_canvas_to_fbink(const otter::RasterCanvas &canvas, bool flash) {
     cfg.is_quiet = true;
     cfg.is_flashing = flash;
     cfg.ignore_alpha = true;
+    cfg.is_inverted = invert_output;
+    cfg.is_nightmode = night_mode;
 
     const int fbfd = fbink_open();
     if (fbfd < 0) {
@@ -116,10 +118,12 @@ static Janet cfun_framebuffer_size(int32_t argc, Janet *argv) {
 }
 
 static Janet cfun_present(int32_t argc, Janet *argv) {
-    janet_arity(argc, 1, 2);
+    janet_arity(argc, 1, 4);
     otter::RasterCanvas *canvas = otter::binding::get_canvas(argv, 0);
     const bool flash = argc >= 2 ? janet_getboolean(argv, 1) : true;
-    return janet_wrap_integer(present_canvas_to_fbink(*canvas, flash));
+    const bool invert_output = argc >= 3 ? janet_getboolean(argv, 2) : false;
+    const bool night_mode = argc >= 4 ? janet_getboolean(argv, 3) : false;
+    return janet_wrap_integer(present_canvas_to_fbink(*canvas, flash, invert_output, night_mode));
 }
 
 static const JanetReg platform_cfuns[] = {
@@ -130,7 +134,7 @@ static const JanetReg platform_cfuns[] = {
     },
     {
         "present", cfun_present,
-        "(skia/present canvas &opt flash)\n\n"
+        "(skia/present canvas &opt flash invert-output night-mode)\n\n"
         "Present a gray8 canvas to the Kobo framebuffer with FBInk."
     },
     {NULL, NULL, NULL}

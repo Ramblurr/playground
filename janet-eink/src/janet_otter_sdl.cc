@@ -321,9 +321,11 @@ bool option_bool(Janet options, const char *key, bool default_value) {
     if (janet_checktype(value, JANET_NIL)) {
         return default_value;
     }
-    return janet_truthy(value);
+    if (!janet_checktype(value, JANET_BOOLEAN)) {
+        janet_panicf("present option :%s must be a boolean", key);
+    }
+    return janet_unwrap_boolean(value);
 }
-
 void set_default_env(const char *name, const char *value) {
     if (std::getenv(name) == nullptr) {
         setenv(name, value, 0);
@@ -613,9 +615,17 @@ bool present_canvas(
     SDL_Texture *texture,
     const BezelSpec *bezel,
     otter::RasterCanvas &canvas,
-    const ButtonInteraction &button_interaction) {
+    const ButtonInteraction &button_interaction,
+    bool invert_output) {
     std::vector<std::uint8_t> rgba;
     otter::canvas_to_rgba32(canvas, &rgba);
+    if (invert_output) {
+        for (std::size_t offset = 0; offset + 3U < rgba.size(); offset += 4U) {
+            rgba[offset + 0U] = static_cast<std::uint8_t>(255U - rgba[offset + 0U]);
+            rgba[offset + 1U] = static_cast<std::uint8_t>(255U - rgba[offset + 1U]);
+            rgba[offset + 2U] = static_cast<std::uint8_t>(255U - rgba[offset + 2U]);
+        }
+    }
 
     if (SDL_UpdateTexture(texture, nullptr, rgba.data(), canvas.width() * 4) != 0) {
         return false;
@@ -652,8 +662,9 @@ void redraw_canvas(
     bool sdl_initialized,
     const BezelSpec *bezel,
     otter::RasterCanvas &canvas,
-    const ButtonInteraction &button_interaction) {
-    if (!present_canvas(renderer, texture, bezel, canvas, button_interaction)) {
+    const ButtonInteraction &button_interaction,
+    bool invert_output) {
+    if (!present_canvas(renderer, texture, bezel, canvas, button_interaction, invert_output)) {
         panic_sdl("SDL present", texture, renderer, window, sdl_initialized);
     }
 }
@@ -665,13 +676,14 @@ void run_event_loop(
     bool sdl_initialized,
     const BezelSpec *bezel,
     otter::RasterCanvas &canvas,
-    ButtonInteraction button_interaction) {
+    ButtonInteraction button_interaction,
+    bool invert_output) {
     bool running = true;
     bool press_started_on_button = false;
 
     auto redraw_if_changed = [&](bool hovered, bool pressed) {
         if (update_button_interaction(&button_interaction, hovered, pressed)) {
-            redraw_canvas(texture, renderer, window, sdl_initialized, bezel, canvas, button_interaction);
+            redraw_canvas(texture, renderer, window, sdl_initialized, bezel, canvas, button_interaction, invert_output);
         }
     };
 
@@ -734,7 +746,7 @@ void run_event_loop(
                 } else if (event.window.event == SDL_WINDOWEVENT_EXPOSED ||
                            event.window.event == SDL_WINDOWEVENT_RESIZED ||
                            event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
-                    redraw_canvas(texture, renderer, window, sdl_initialized, bezel, canvas, button_interaction);
+                    redraw_canvas(texture, renderer, window, sdl_initialized, bezel, canvas, button_interaction, invert_output);
                 }
                 break;
             default:
@@ -773,6 +785,7 @@ static Janet cfun_present(int32_t argc, Janet *argv) {
     otter::RasterCanvas *canvas = otter::binding::get_canvas(argv, 0);
     Janet options = argc >= 2 ? argv[1] : janet_wrap_nil();
     const bool block = option_bool(options, "block?", true);
+    const bool invert_output = option_bool(options, "invert-output?", false) || option_bool(options, "night-mode?", false);
     const BezelSpec *bezel = selected_bezel_spec();
     SDL_Texture *texture = nullptr;
     SDL_Renderer *renderer = nullptr;
@@ -827,12 +840,12 @@ static Janet cfun_present(int32_t argc, Janet *argv) {
     }
 
     ButtonInteraction button_interaction;
-    if (!present_canvas(renderer, texture, bezel, *canvas, button_interaction)) {
+    if (!present_canvas(renderer, texture, bezel, *canvas, button_interaction, invert_output)) {
         panic_sdl("SDL present", texture, renderer, window, sdl_initialized);
     }
 
     if (block) {
-        run_event_loop(texture, renderer, window, sdl_initialized, bezel, *canvas, button_interaction);
+        run_event_loop(texture, renderer, window, sdl_initialized, bezel, *canvas, button_interaction, invert_output);
     }
 
     cleanup_sdl(texture, renderer, window, sdl_initialized);
