@@ -157,6 +157,29 @@
     (error (string name " options require :paint")))
   opts)
 
+
+(defn- quantize-gray-levels
+  [name opts]
+  (def levels (get opts :quantize-gray-levels 0))
+  (if (nil? levels) 0 levels))
+
+(defn- dither-mode
+  [name opts auto-mode]
+  (def mode (get opts :dither :none))
+  (case mode
+    nil :none
+    :none :none
+    :ordered :ordered
+    :auto auto-mode
+    (error (string name " :dither must be :none, :ordered, or :auto"))))
+
+(defn- conversion-options
+  [name opts auto-mode]
+  (def options (or opts @{}))
+  (unless (dict? options)
+    (error (string name " expects an options table")))
+  @{:quantize-gray-levels (quantize-gray-levels name options)
+    :dither (dither-mode name options auto-mode)})
 (defn- draw-paints
   [name opts]
   (let [options (ensure-draw-options name opts)]
@@ -278,14 +301,14 @@
   [canvas text &opt opts]
   (def options (or opts @{}))
   ((native-fn 'shape-text)
-   canvas
-   text
-   (family-name (get options :font-family nil))
-   (font-size-value options)
-   (font-weight-value options)
-   (font-width-value options)
-   (font-slant-value options)
-   (font-features-string options)))
+    canvas
+    text
+    (family-name (get options :font-family nil))
+    (font-size-value options)
+    (font-weight-value options)
+    (font-width-value options)
+    (font-slant-value options)
+    (font-features-string options)))
 
 (defn text-line-metrics
   [text-line]
@@ -329,17 +352,29 @@
         dst-x (get destination :x x)
         dst-y (get destination :y y)
         dst-w (get destination :w (get options :w src-w))
-        dst-h (get destination :h (get options :h src-h))]
+        dst-h (get destination :h (get options :h src-h))
+        conversion (conversion-options "skia/draw-image" options :ordered)]
     ((native-fn 'draw-image)
-     canvas image
-     src-x src-y src-w src-h
-     dst-x dst-y dst-w dst-h
-     (get options :alpha 1.0))))
+      canvas image
+      src-x src-y src-w src-h
+      dst-x dst-y dst-w dst-h
+      (get options :alpha 1.0))
+    (when (> (get conversion :quantize-gray-levels) 1)
+      ((native-fn 'quantize-rect)
+        canvas dst-x dst-y dst-w dst-h
+        (get conversion :quantize-gray-levels)
+        (get conversion :dither)))
+    canvas))
 
 (defn invert-rect
   [canvas x y w h]
   ((native-fn 'invert-rect) canvas x y w h)
   canvas)
+
+(defn convert-to-gray8
+  [canvas &opt opts]
+  (let [conversion (conversion-options "skia/convert-to-gray8" opts :ordered)]
+    ((native-fn 'convert-to-gray8) canvas (get conversion :quantize-gray-levels) (get conversion :dither))))
 
 (defn save
   [canvas]
@@ -378,8 +413,8 @@
   (def c (gensym))
   ~(let [,c ,canvas]
      (skia/with-save ,c
-       (skia/clip-rect ,c ,x ,y ,w ,h)
-       ,;body)))
+                     (skia/clip-rect ,c ,x ,y ,w ,h)
+                     ,;body)))
 
 (defn sample-gray
   [canvas x y]

@@ -52,7 +52,9 @@
                    :run-static? true
                    :capabilities @{:invert-output? true
                                    :night-mode? true
-                                   :hardware-night-mode? false}}
+                                   :hardware-night-mode? false
+                                   :software-dither? true
+                                   :hardware-dither? false}}
                  observed)
           "desktop provider exposes native loading, screen size, presentation, and run-static"))))
 
@@ -121,7 +123,9 @@
                    :run-static? true
                    :capabilities @{:invert-output? true
                                    :night-mode? false
-                                   :hardware-night-mode? false}}
+                                   :hardware-night-mode? false
+                                   :software-dither? true
+                                   :hardware-dither? false}}
                  observed)
           "Kobo provider exposes native loading, screen size, presentation, and run-static"))))
 

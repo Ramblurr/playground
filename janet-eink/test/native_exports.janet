@@ -41,6 +41,8 @@
           :sample-gray (native-export? native-fn 'sample-gray)
           :sample-rgba (native-export? native-fn 'sample-rgba)
           :canvas-info (native-export? native-fn 'canvas-info)
+          :convert-to-gray8 (native-export? native-fn 'convert-to-gray8)
+          :quantize-rect (native-export? native-fn 'quantize-rect)
           :stats (native-export? native-fn 'stats)
           :present (native-export? native-fn 'present)
           :fixed-viewport (native-export? native-fn 'fixed-viewport)})
@@ -56,6 +58,8 @@
                    :sample-gray true
                    :sample-rgba true
                    :canvas-info true
+                   :convert-to-gray8 true
+                   :quantize-rect true
                    :stats true
                    :present true
                    :fixed-viewport true}

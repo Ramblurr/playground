@@ -25,6 +25,16 @@ enum class PixelFormat {
     Rgba32,
 };
 
+enum class DitherMode {
+    None,
+    Ordered,
+};
+
+struct GrayConversionOptions {
+    int quantize_gray_levels = 0;
+    DitherMode dither = DitherMode::None;
+};
+
 struct CanvasStats {
     int width = 0;
     int height = 0;
@@ -173,6 +183,8 @@ bool shape_text(RasterCanvas &canvas, const std::string &utf8, const FontOptions
 bool draw_text_line(RasterCanvas &canvas, const TextLine &line, float x, float y, const NormalizedPaint &paint);
 bool draw_image(RasterCanvas &canvas, const RasterImage &image, float src_x, float src_y, float src_width, float src_height, float dst_x, float dst_y, float dst_width, float dst_height, float alpha);
 bool invert_rect(RasterCanvas &canvas, float x, float y, float width, float height);
+bool convert_to_gray8(const RasterCanvas &source, RasterCanvas *destination, const GrayConversionOptions &options);
+bool quantize_rect(RasterCanvas &canvas, float x, float y, float width, float height, const GrayConversionOptions &options);
 std::uint8_t sample_gray(const RasterCanvas &canvas, int x, int y);
 RgbaPixel sample_rgba(const RasterCanvas &canvas, int x, int y);
 CanvasStats compute_stats(const RasterCanvas &canvas);

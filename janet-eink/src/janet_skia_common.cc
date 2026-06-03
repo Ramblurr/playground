@@ -435,6 +435,54 @@ static Janet cfun_invert_rect(int32_t argc, Janet *argv) {
     return argv[0];
 }
 
+static otter::DitherMode get_dither_mode(Janet *argv, int32_t n) {
+    if (keyword_arg_equals(argv[n], "none")) {
+        return otter::DitherMode::None;
+    }
+    if (keyword_arg_equals(argv[n], "ordered")) {
+        return otter::DitherMode::Ordered;
+    }
+    janet_panic("dither mode must be :none or :ordered");
+}
+
+static otter::GrayConversionOptions get_gray_conversion_options(Janet *argv, int32_t levels_index, int32_t dither_index) {
+    otter::GrayConversionOptions options;
+    options.quantize_gray_levels = janet_getinteger(argv, levels_index);
+    if (options.quantize_gray_levels != 0 && (options.quantize_gray_levels < 2 || options.quantize_gray_levels > 256)) {
+        janet_panic("quantize-gray-levels must be 0 or an integer between 2 and 256");
+    }
+    options.dither = get_dither_mode(argv, dither_index);
+    return options;
+}
+
+static Janet cfun_convert_to_gray8(int32_t argc, Janet *argv) {
+    janet_fixarity(argc, 3);
+    otter::RasterCanvas *source = get_canvas(argv, 0);
+    const otter::GrayConversionOptions options = get_gray_conversion_options(argv, 1, 2);
+    void *memory = janet_abstract(&canvas_type, sizeof(otter::RasterCanvas));
+    auto *destination = new (memory) otter::RasterCanvas();
+    if (!otter::convert_to_gray8(*source, destination, options)) {
+        janet_panic("convert-to-gray8 failed to allocate destination canvas");
+    }
+    return janet_wrap_abstract(destination);
+}
+
+static Janet cfun_quantize_rect(int32_t argc, Janet *argv) {
+    janet_fixarity(argc, 7);
+    otter::RasterCanvas *canvas = get_canvas(argv, 0);
+    const otter::GrayConversionOptions options = get_gray_conversion_options(argv, 5, 6);
+    if (!otter::quantize_rect(
+            *canvas,
+            static_cast<float>(janet_getnumber(argv, 1)),
+            static_cast<float>(janet_getnumber(argv, 2)),
+            static_cast<float>(janet_getnumber(argv, 3)),
+            static_cast<float>(janet_getnumber(argv, 4)),
+            options)) {
+        janet_panic("quantize-rect requires a positive finite width and height and finite coordinates");
+    }
+    return argv[0];
+}
+
 static Janet cfun_sample_gray(int32_t argc, Janet *argv) {
     janet_fixarity(argc, 3);
     otter::RasterCanvas *canvas = get_canvas(argv, 0);
@@ -625,6 +673,14 @@ static const JanetReg common_cfuns[] = {
     {
         "invert-rect", cfun_invert_rect,
         "(skia/invert-rect canvas x y width height)\n\nInvert RGB or gray pixels inside a raster canvas rectangle."
+    },
+    {
+        "convert-to-gray8", cfun_convert_to_gray8,
+        "(skia/convert-to-gray8 canvas quantize-gray-levels dither)\n\nConvert a canvas to a gray8 canvas and optionally quantize it."
+    },
+    {
+        "quantize-rect", cfun_quantize_rect,
+        "(skia/quantize-rect canvas x y width height quantize-gray-levels dither)\n\nQuantize a canvas rectangle to an effective gray palette."
     },
     {
         "shape-text", cfun_shape_text,

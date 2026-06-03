@@ -72,7 +72,9 @@
 (def capabilities
   @{:invert-output? true
     :night-mode? true
-    :hardware-night-mode? false})
+    :hardware-night-mode? false
+    :software-dither? true
+    :hardware-dither? false})
 
 (defn- dict?
   [value]

@@ -427,6 +427,83 @@
              observed)
       "invert-rect maps rgba32 RGB channels to 255 - channel inside the rectangle and leaves alpha unchanged"))
 
+(deftest convert-to-gray8-quantizes-to-16-levels-without-dithering
+  (def frame (skia/create {:width 4 :height 1 :pixel-format :gray8}))
+  (skia/clear frame "0")
+  (eachp [x gray] [0 8 128 255]
+    (skia/draw-rect frame x 0 1 1 {:paint {:fill-gray gray :anti-alias? false}}))
+  (def converted (skia/convert-to-gray8 frame {:quantize-gray-levels 16 :dither :none}))
+  (def observed
+    @{:converted @[(skia/sample-gray converted 0 0)
+                  (skia/sample-gray converted 1 0)
+                  (skia/sample-gray converted 2 0)
+                  (skia/sample-gray converted 3 0)]
+      :source @[(skia/sample-gray frame 0 0)
+                (skia/sample-gray frame 1 0)
+                (skia/sample-gray frame 2 0)
+                (skia/sample-gray frame 3 0)]})
+  (is (deep= @{:converted @[0 0 136 255]
+               :source @[0 8 128 255]}
+             observed)
+      "explicit gray conversion quantizes to the 16-level 0,17,...,255 palette without mutating the source"))
+
+(deftest convert-to-gray8-ordered-dither-quantizes-gradient-with-koreader-thresholds
+  (def frame (skia/create {:width 8 :height 2 :pixel-format :gray8}))
+  (eachp [x gray] [0 8 64 127 128 191 247 255]
+    (skia/draw-rect frame x 0 1 1 {:paint {:fill-gray gray :anti-alias? false}})
+    (skia/draw-rect frame x 1 1 1 {:paint {:fill-gray gray :anti-alias? false}}))
+  (def converted (skia/convert-to-gray8 frame {:quantize-gray-levels 16 :dither :ordered}))
+  (def observed
+    @[@[(skia/sample-gray converted 0 0) (skia/sample-gray converted 1 0)
+        (skia/sample-gray converted 2 0) (skia/sample-gray converted 3 0)
+        (skia/sample-gray converted 4 0) (skia/sample-gray converted 5 0)
+        (skia/sample-gray converted 6 0) (skia/sample-gray converted 7 0)]
+      @[(skia/sample-gray converted 0 1) (skia/sample-gray converted 1 1)
+        (skia/sample-gray converted 2 1) (skia/sample-gray converted 3 1)
+        (skia/sample-gray converted 4 1) (skia/sample-gray converted 5 1)
+        (skia/sample-gray converted 6 1) (skia/sample-gray converted 7 1)]])
+  (is (deep= @[@[0 0 68 119 136 187 255 255]
+               @[0 17 68 136 119 187 238 255]]
+             observed)
+      "ordered dithering quantizes a gradient with KOReader's 8x8 threshold map"))
+
+(deftest convert-to-gray8-ordered-dither-is-deterministic-and-anchored
+  (def frame (skia/create {:width 4 :height 4 :pixel-format :gray8}))
+  (skia/clear frame {:fill-gray 128})
+  (def converted (skia/convert-to-gray8 frame {:quantize-gray-levels 16 :dither :ordered}))
+  (def observed
+    @[@[(skia/sample-gray converted 0 0) (skia/sample-gray converted 1 0)
+        (skia/sample-gray converted 2 0) (skia/sample-gray converted 3 0)]
+      @[(skia/sample-gray converted 0 1) (skia/sample-gray converted 1 1)
+        (skia/sample-gray converted 2 1) (skia/sample-gray converted 3 1)]
+      @[(skia/sample-gray converted 0 2) (skia/sample-gray converted 1 2)
+        (skia/sample-gray converted 2 2) (skia/sample-gray converted 3 2)]
+      @[(skia/sample-gray converted 0 3) (skia/sample-gray converted 1 3)
+        (skia/sample-gray converted 2 3) (skia/sample-gray converted 3 3)]])
+  (is (deep= @[@[136 119 136 119]
+               @[136 136 119 136]
+               @[136 119 136 119]
+               @[119 136 119 136]]
+             observed)
+      "ordered Bayer dithering matches KOReader/ImageMagick's deterministic 8x8 threshold map for flat mid-gray"))
+
+(deftest draw-image-auto-dither-quantizes-image-region-with-absolute-destination-anchor
+  (def image (skia/create-image {:width 2 :height 2 :pixel-format :gray8
+                                  :pixels @[128 128
+                                            128 128]}))
+  (def frame (skia/create {:width 4 :height 4 :pixel-format :gray8}))
+  (skia/clear frame "F")
+  (skia/draw-image frame image 1 1 {:quantize-gray-levels 16 :dither :auto})
+  (def observed
+    @{:outside (skia/sample-gray frame 0 0)
+      :image @[@[(skia/sample-gray frame 1 1) (skia/sample-gray frame 2 1)]
+               @[(skia/sample-gray frame 1 2) (skia/sample-gray frame 2 2)]]})
+  (is (deep= @{:outside 255
+               :image @[@[136 119]
+                        @[119 136]]}
+             observed)
+      "image draw :dither :auto uses ordered dithering anchored to absolute destination coordinates"))
+
 (deftest unsupported-canvas-pixel-formats-fail-clearly
   (def observed
     @{:rgb565-rejected? (not (get (protect (skia/create {:width 8 :height 8 :pixel-format :rgb565})) 0))

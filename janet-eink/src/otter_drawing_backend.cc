@@ -88,6 +88,56 @@ bool finite_pair(float x, float y) {
     return std::isfinite(x) && std::isfinite(y);
 }
 
+constexpr std::uint8_t kBayer8Thresholds[64] = {
+    1, 49, 13, 61, 4, 52, 16, 64,
+    33, 17, 45, 29, 36, 20, 48, 32,
+    9, 57, 5, 53, 12, 60, 8, 56,
+    41, 25, 37, 21, 44, 28, 40, 24,
+    3, 51, 15, 63, 2, 50, 14, 62,
+    35, 19, 47, 31, 34, 18, 46, 30,
+    11, 59, 7, 55, 10, 58, 6, 54,
+    43, 27, 39, 23, 42, 26, 38, 22,
+};
+
+std::uint32_t div_255(std::uint32_t value) {
+    const std::uint32_t rounded = value + 128U;
+    return ((rounded >> 8U) + rounded) >> 8U;
+}
+
+std::uint8_t quantized_gray(std::uint8_t gray, const GrayConversionOptions &options, int x, int y) {
+    if (options.quantize_gray_levels <= 1) {
+        return gray;
+    }
+
+    const int levels = std::clamp(options.quantize_gray_levels, 2, 256);
+    int index = 0;
+    if (options.dither == DitherMode::Ordered) {
+        std::uint32_t threshold = div_255(static_cast<std::uint32_t>(gray) * ((((static_cast<std::uint32_t>(levels) - 1U) << 6U) + 1U)));
+        const std::uint32_t base = threshold >> 6U;
+        threshold = threshold - (base << 6U);
+        const std::uint32_t map = kBayer8Thresholds[(static_cast<unsigned int>(x) & 7U) + 8U * (static_cast<unsigned int>(y) & 7U)];
+        index = static_cast<int>(base + (threshold >= map ? 1U : 0U));
+    } else {
+        const float scaled = (static_cast<float>(gray) * static_cast<float>(levels - 1)) / 255.0f;
+        index = static_cast<int>(std::lround(scaled));
+    }
+    index = std::clamp(index, 0, levels - 1);
+    return static_cast<std::uint8_t>(std::clamp(std::lround((static_cast<float>(index) * 255.0f) / static_cast<float>(levels - 1)), 0L, 255L));
+}
+
+void write_gray_pixel(RasterCanvas &canvas, int x, int y, std::uint8_t gray) {
+    SkBitmap &bitmap = canvas.bitmap();
+    if (canvas.pixel_format() == PixelFormat::Gray8) {
+        auto *row = static_cast<std::uint8_t *>(bitmap.getAddr(0, y));
+        row[x] = gray;
+        return;
+    }
+
+    const SkColor existing = bitmap.getColor(x, y);
+    const SkColor color = SkColorSetARGB(SkColorGetA(existing), gray, gray, gray);
+    bitmap.erase(color, SkIRect::MakeXYWH(x, y, 1, 1));
+}
+
 bool has_supported_font_extension(const std::filesystem::path &path) {
     std::string extension = path.extension().string();
     std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char ch) {
@@ -749,6 +799,42 @@ bool invert_rect(RasterCanvas &canvas, float x, float y, float width, float heig
                 255U - SkColorGetG(color),
                 255U - SkColorGetB(color));
             bitmap.erase(inverted, SkIRect::MakeXYWH(col, row_index, 1, 1));
+        }
+    }
+    return true;
+}
+
+bool convert_to_gray8(const RasterCanvas &source, RasterCanvas *destination, const GrayConversionOptions &options) {
+    if (destination == nullptr || !destination->reset(source.width(), source.height(), PixelFormat::Gray8)) {
+        return false;
+    }
+
+    SkBitmap &bitmap = destination->bitmap();
+    for (int y = 0; y < source.height(); ++y) {
+        auto *row = static_cast<std::uint8_t *>(bitmap.getAddr(0, y));
+        for (int x = 0; x < source.width(); ++x) {
+            row[x] = quantized_gray(sample_gray(source, x, y), options, x, y);
+        }
+    }
+    return true;
+}
+
+bool quantize_rect(RasterCanvas &canvas, float x, float y, float width, float height, const GrayConversionOptions &options) {
+    if (!finite_pair(x, y) || !positive(width) || !positive(height)) {
+        return false;
+    }
+    if (options.quantize_gray_levels <= 1) {
+        return true;
+    }
+
+    const int left = std::clamp(static_cast<int>(std::floor(x)), 0, canvas.width());
+    const int top = std::clamp(static_cast<int>(std::floor(y)), 0, canvas.height());
+    const int right = std::clamp(static_cast<int>(std::ceil(x + width)), 0, canvas.width());
+    const int bottom = std::clamp(static_cast<int>(std::ceil(y + height)), 0, canvas.height());
+    for (int row_index = top; row_index < bottom; ++row_index) {
+        for (int col = left; col < right; ++col) {
+            const std::uint8_t gray = quantized_gray(sample_gray(canvas, col, row_index), options, col, row_index);
+            write_gray_pixel(canvas, col, row_index, gray);
         }
     }
     return true;
