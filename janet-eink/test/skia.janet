@@ -42,11 +42,11 @@
       :canvas @{:width (get stats :width)
                :height (get stats :height)
                :pixel-format (get stats :pixel-format)}})
-  (is (deep= @{:screen @{:width 1680
-                         :height 1264
+  (is (deep= @{:screen @{:width 1264
+                         :height 1680
                          :pixel-format :gray8}
-               :canvas @{:width 1680
-                         :height 1264
+               :canvas @{:width 1264
+                         :height 1680
                          :pixel-format :gray8}}
              observed)
       "default canvas dimensions come from the selected platform provider"))

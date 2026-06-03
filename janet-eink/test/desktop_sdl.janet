@@ -26,8 +26,8 @@
              observed)
       "public skia API renders primitives through the desktop native module"))
 
-(deftest janet-demo-scene-renders-kobo-sized-gray-shape-screen
-  (def frame (skia/create 1680 1264))
+(deftest janet-demo-scene-renders-portrait-kobo-sized-gray-shape-screen
+  (def frame (skia/create 1264 1680))
   (shapes/draw frame)
   (def stats (skia/stats frame))
   (def observed
@@ -39,8 +39,8 @@
       :many-shades? (>= (get stats :gray-shades) 8)
       :substantial-ink? (> (get stats :non-white-pixels) 200000)
       :non-empty? (> (get stats :checksum) 0)})
-  (is (deep= @{:width 1680
-               :height 1264
+  (is (deep= @{:width 1264
+               :height 1680
                :pixel-format :gray8
                :has-black? true
                :has-white? true
@@ -48,22 +48,22 @@
                :substantial-ink? true
                :non-empty? true}
              observed)
-      "Janet demo scene renders through the public skia API"))
+      "Janet demo scene renders through the public skia API in portrait Kobo dimensions"))
 
-(deftest desktop-sdl-centers-a-fixed-kobo-canvas-in-any-render-output
-  (def large (desktop/fixed-viewport 2000 1400))
-  (def small (desktop/fixed-viewport 1000 800))
-  (is (deep= @{:x 160
-               :y 68
-               :width 1680
-               :height 1264}
+(deftest desktop-sdl-centers-a-half-scale-portrait-kobo-canvas-in-any-render-output
+  (def large (desktop/fixed-viewport 1000 1000))
+  (def small (desktop/fixed-viewport 500 400))
+  (is (deep= @{:x 184
+               :y 80
+               :width 632
+               :height 840}
              large)
-      "larger compositor windows center the fixed Kobo canvas without scaling")
-  (is (deep= @{:x -340
-               :y -232
-               :width 1680
-               :height 1264}
+      "larger compositor windows center the half-scale portrait Kobo canvas")
+  (is (deep= @{:x -66
+               :y -220
+               :width 632
+               :height 840}
              small)
-      "smaller compositor windows clip a fixed Kobo canvas instead of scaling it"))
+      "smaller compositor windows clip the half-scale portrait Kobo canvas"))
 
 (run-tests!)

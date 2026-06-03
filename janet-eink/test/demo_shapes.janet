@@ -26,7 +26,7 @@
     (def stats-fn (module-value skia 'stats))
     (def draw (module-value shapes 'draw))
     (when (and create stats-fn draw)
-      (def frame (create 1680 1264))
+      (def frame (create 1264 1680))
       (draw frame)
       (def stats (stats-fn frame))
       (def observed
@@ -38,8 +38,8 @@
           :many-shades? (>= (get stats :gray-shades) 8)
           :substantial-ink? (> (get stats :non-white-pixels) 200000)
           :non-empty? (> (get stats :checksum) 0)})
-      (is (deep= @{:width 1680
-                   :height 1264
+      (is (deep= @{:width 1264
+                   :height 1680
                    :pixel-format :gray8
                    :has-black? true
                    :has-white? true
@@ -47,6 +47,6 @@
                    :substantial-ink? true
                    :non-empty? true}
                  observed)
-          "Janet-owned shape demo renders substantial gray8 geometry through lib/skia.janet"))))
+          "Janet-owned shape demo renders substantial portrait gray8 geometry through lib/skia.janet"))))
 
 (run-tests!)

@@ -17,12 +17,19 @@ struct CanvasRect {
     int height = otter::kKoboScreenHeight;
 };
 
+int display_dimension(int canvas_dimension) {
+    const int scaled = canvas_dimension / 2;
+    return scaled > 0 ? scaled : 1;
+}
+
 CanvasRect fixed_canvas_rect(int output_width, int output_height, int canvas_width, int canvas_height) {
+    const int display_width = display_dimension(canvas_width);
+    const int display_height = display_dimension(canvas_height);
     CanvasRect rect;
-    rect.x = (output_width - canvas_width) / 2;
-    rect.y = (output_height - canvas_height) / 2;
-    rect.width = canvas_width;
-    rect.height = canvas_height;
+    rect.x = (output_width - display_width) / 2;
+    rect.y = (output_height - display_height) / 2;
+    rect.width = display_width;
+    rect.height = display_height;
     return rect;
 }
 
@@ -214,8 +221,8 @@ static Janet cfun_present(int32_t argc, Janet *argv) {
         "Otter",
         SDL_WINDOWPOS_UNDEFINED,
         SDL_WINDOWPOS_UNDEFINED,
-        canvas->width(),
-        canvas->height(),
+        display_dimension(canvas->width()),
+        display_dimension(canvas->height()),
         SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
     if (window == nullptr) {
         panic_sdl("SDL_CreateWindow", texture, renderer, window, sdl_initialized);

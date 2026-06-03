@@ -25,7 +25,7 @@
 - `lib/platform/kobo.janet` — narrow Kobo provider: native loading, framebuffer size, and FBInk presentation.
 - `lib/demo/shapes.janet` — Janet-owned grayscale geometry demo using `lib/skia.janet`.
 - `src/otter_drawing_backend.*` — shared gray8 Skia drawing backend for rectangles, rounded rectangles, paths, images, text, stats, and RGBA conversion.
-- `src/janet_otter_sdl.cc` — SDL desktop presenter; registers common drawing bindings and presents a fixed `1680x1264` Kobo canvas centered in the compositor window, clipping rather than scaling.
+- `src/janet_otter_sdl.cc` — SDL desktop presenter; registers common drawing bindings and presents a portrait `1264x1680` Kobo canvas at half size (`632x840`) centered in the compositor window, clipping when needed.
 - `src/janet_skia.cc` — Kobo presenter; registers common drawing bindings and presents gray8 buffers via FBInk.
 
 ## Bundle shape
@@ -55,7 +55,7 @@ Important files:
 
 It copies ELF libs by SONAME as real files because `/mnt/onboard` does not support symlinks.
 
-## Build/install
+## Kobo Build/install
 
 ```sh
 ./install.sh
@@ -72,6 +72,14 @@ ssh root@kobo-lan 'cd /mnt/onboard/janet-eink-demo/janet && PATH="$PWD/bin:$PATH
 ```
 
 Expected Skia/FBInk smoke exits `0` and renders a full-screen grayscale geometry demo with bars, rectangles, triangles, rounded rectangles, circles, and a black border.
+
+## Kobo Run/Dev
+
+```
+cd /mnt/onboard/janet-eink-demo/janet
+export PATH="$PWD/bin:$PATH"
+./bin/otter
+```
 
 ## Local Dev
 

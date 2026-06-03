@@ -115,6 +115,7 @@
           #export JANET_PATH="$JANET_EINK_JPM_TREE/lib''${JANET_PATH:+:$JANET_PATH}"
           export OTTER_SKIA_NATIVE="${janetOtterSdl}/lib/janet-skia.so"
           export OTTER_FONT_DIR="${otterFonts}/share/otter/fonts"
+          export SDL_VIDEODRIVER=wayland
           echo "Janet dev shell"
           echo "  janet: $(command -v janet)"
           echo "  jpm:   $(command -v jpm)"

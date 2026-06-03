@@ -12,8 +12,8 @@ class SkCanvas;
 
 namespace otter {
 
-constexpr int kKoboScreenWidth = 1680;
-constexpr int kKoboScreenHeight = 1264;
+constexpr int kKoboScreenWidth = 1264;
+constexpr int kKoboScreenHeight = 1680;
 
 struct GrayStats {
     int width = 0;

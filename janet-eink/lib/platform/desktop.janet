@@ -1,5 +1,5 @@
-(def default-width 1680)
-(def default-height 1264)
+(def default-width 1264)
+(def default-height 1680)
 
 (defn- dirname
   [path]
