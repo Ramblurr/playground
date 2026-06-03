@@ -9,6 +9,7 @@
 (import ./label :as label)
 (import ./gap :as gap)
 (import ./padding :as padding)
+(import ./row-column :as row-column)
 (import ./rect :as rect)
 (import ./util :as util)
 
@@ -34,6 +35,8 @@
 (register-builtin! label/label :label)
 (register-builtin! gap/gap :gap)
 (register-builtin! padding/padding :padding)
+(register-builtin! row-column/row :row)
+(register-builtin! row-column/column :column)
 (register-builtin! rect/rect :rect)
 
 (defn builtin-head?

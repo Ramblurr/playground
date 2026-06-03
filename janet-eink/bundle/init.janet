@@ -27,6 +27,7 @@
   (bundle/add manifest "lib/ui/gap.janet" "otter/lib/ui/gap.janet")
   (bundle/add manifest "lib/ui/padding.janet" "otter/lib/ui/padding.janet")
   (bundle/add manifest "lib/ui/rect.janet" "otter/lib/ui/rect.janet")
+  (bundle/add manifest "lib/ui/row-column.janet" "otter/lib/ui/row-column.janet")
   (bundle/add manifest "lib/ui/nodes.janet" "otter/lib/ui/nodes.janet")
   (bundle/add manifest "lib/ui/reconcile.janet" "otter/lib/ui/reconcile.janet")
   (bundle/add manifest "lib/ui/util.janet" "otter/lib/ui/util.janet")
