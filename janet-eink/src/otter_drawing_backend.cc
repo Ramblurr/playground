@@ -716,6 +716,44 @@ bool draw_image(RasterCanvas &canvas, const RasterImage &image, float src_x, flo
     return true;
 }
 
+bool invert_rect(RasterCanvas &canvas, float x, float y, float width, float height) {
+    if (!finite_pair(x, y) || !positive(width) || !positive(height)) {
+        return false;
+    }
+
+    const int left = std::clamp(static_cast<int>(std::floor(x)), 0, canvas.width());
+    const int top = std::clamp(static_cast<int>(std::floor(y)), 0, canvas.height());
+    const int right = std::clamp(static_cast<int>(std::ceil(x + width)), 0, canvas.width());
+    const int bottom = std::clamp(static_cast<int>(std::ceil(y + height)), 0, canvas.height());
+    if (left >= right || top >= bottom) {
+        return true;
+    }
+
+    SkBitmap &bitmap = canvas.bitmap();
+    if (canvas.pixel_format() == PixelFormat::Gray8) {
+        for (int row_index = top; row_index < bottom; ++row_index) {
+            std::uint8_t *row = static_cast<std::uint8_t *>(bitmap.getAddr(left, row_index));
+            for (int col = 0; col < right - left; ++col) {
+                row[col] = static_cast<std::uint8_t>(255U - row[col]);
+            }
+        }
+        return true;
+    }
+
+    for (int row_index = top; row_index < bottom; ++row_index) {
+        for (int col = left; col < right; ++col) {
+            const SkColor color = bitmap.getColor(col, row_index);
+            const SkColor inverted = SkColorSetARGB(
+                SkColorGetA(color),
+                255U - SkColorGetR(color),
+                255U - SkColorGetG(color),
+                255U - SkColorGetB(color));
+            bitmap.erase(inverted, SkIRect::MakeXYWH(col, row_index, 1, 1));
+        }
+    }
+    return true;
+}
+
 sk_sp<SkTypeface> select_typeface(RasterCanvas &canvas, const FontOptions &options, std::string *selected_family_out) {
     TextState *text = canvas.text_state();
     if (text == nullptr || !text->font_mgr) {

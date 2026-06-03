@@ -421,6 +421,20 @@ static Janet cfun_draw_image(int32_t argc, Janet *argv) {
     return argv[0];
 }
 
+static Janet cfun_invert_rect(int32_t argc, Janet *argv) {
+    janet_fixarity(argc, 5);
+    otter::RasterCanvas *canvas = get_canvas(argv, 0);
+    if (!otter::invert_rect(
+            *canvas,
+            static_cast<float>(janet_getnumber(argv, 1)),
+            static_cast<float>(janet_getnumber(argv, 2)),
+            static_cast<float>(janet_getnumber(argv, 3)),
+            static_cast<float>(janet_getnumber(argv, 4)))) {
+        janet_panic("invert-rect requires a positive finite width and height and finite coordinates");
+    }
+    return argv[0];
+}
+
 static Janet cfun_sample_gray(int32_t argc, Janet *argv) {
     janet_fixarity(argc, 3);
     otter::RasterCanvas *canvas = get_canvas(argv, 0);
@@ -607,6 +621,10 @@ static const JanetReg common_cfuns[] = {
     {
         "draw-image", cfun_draw_image,
         "(skia/draw-image canvas image src-x src-y src-width src-height dst-x dst-y dst-width dst-height alpha)\n\nDraw a source rectangle from an image into a canvas."
+    },
+    {
+        "invert-rect", cfun_invert_rect,
+        "(skia/invert-rect canvas x y width height)\n\nInvert RGB or gray pixels inside a raster canvas rectangle."
     },
     {
         "shape-text", cfun_shape_text,

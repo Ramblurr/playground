@@ -391,6 +391,42 @@
     (is (deep= @[76 150 29] observed)
         "RGB paints drawn into :gray8 use the documented luminance conversion")))
 
+(deftest invert-rect-mutates-only-requested-gray8-region
+  (def frame (skia/create {:width 4 :height 2 :pixel-format :gray8}))
+  (skia/clear frame "20")
+  (skia/draw-rect frame 1 0 2 1 {:paint {:fill-gray 96 :anti-alias? false}})
+  (skia/invert-rect frame 1 0 2 1)
+  (def observed
+    @{:outside-left (skia/sample-gray frame 0 0)
+      :inverted-left (skia/sample-gray frame 1 0)
+      :inverted-right (skia/sample-gray frame 2 0)
+      :outside-right (skia/sample-gray frame 3 0)
+      :outside-row (skia/sample-gray frame 1 1)})
+  (is (deep= @{:outside-left 32
+               :inverted-left 159
+               :inverted-right 159
+               :outside-right 32
+               :outside-row 32}
+             observed)
+      "invert-rect maps gray8 pixels to 255 - gray only inside the requested rectangle"))
+
+(deftest invert-rect-mutates-rgba32-rgb-and-preserves-alpha
+  (def frame (skia/create {:width 3 :height 1 :pixel-format :rgba32}))
+  (skia/clear frame "10203080")
+  (def before (skia/sample-rgba frame 1 0))
+  (skia/invert-rect frame 1 0 1 1)
+  (def observed
+    @{:outside-left (skia/sample-rgba frame 0 0)
+      :inverted (skia/sample-rgba frame 1 0)
+      :outside-right (skia/sample-rgba frame 2 0)
+      :before-alpha (get before :a)})
+  (is (deep= @{:outside-left @{:r 16 :g 32 :b 48 :a 128}
+               :inverted @{:r 239 :g 223 :b 207 :a 128}
+               :outside-right @{:r 16 :g 32 :b 48 :a 128}
+               :before-alpha 128}
+             observed)
+      "invert-rect maps rgba32 RGB channels to 255 - channel inside the rectangle and leaves alpha unchanged"))
+
 (deftest unsupported-canvas-pixel-formats-fail-clearly
   (def observed
     @{:rgb565-rejected? (not (get (protect (skia/create {:width 8 :height 8 :pixel-format :rgb565})) 0))

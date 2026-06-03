@@ -336,6 +336,11 @@
      dst-x dst-y dst-w dst-h
      (get options :alpha 1.0))))
 
+(defn invert-rect
+  [canvas x y w h]
+  ((native-fn 'invert-rect) canvas x y w h)
+  canvas)
+
 (defn save
   [canvas]
   ((native-fn 'save) canvas))

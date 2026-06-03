@@ -172,6 +172,7 @@ bool draw_path(RasterCanvas &canvas, const std::vector<float> &coords, bool clos
 bool shape_text(RasterCanvas &canvas, const std::string &utf8, const FontOptions &font_options, const std::string &features_string, TextLine *line, std::string *error_message);
 bool draw_text_line(RasterCanvas &canvas, const TextLine &line, float x, float y, const NormalizedPaint &paint);
 bool draw_image(RasterCanvas &canvas, const RasterImage &image, float src_x, float src_y, float src_width, float src_height, float dst_x, float dst_y, float dst_width, float dst_height, float alpha);
+bool invert_rect(RasterCanvas &canvas, float x, float y, float width, float height);
 std::uint8_t sample_gray(const RasterCanvas &canvas, int x, int y);
 RgbaPixel sample_rgba(const RasterCanvas &canvas, int x, int y);
 CanvasStats compute_stats(const RasterCanvas &canvas);
