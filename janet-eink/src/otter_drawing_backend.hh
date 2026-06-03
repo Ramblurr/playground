@@ -185,6 +185,7 @@ public:
 
     bool load_file(const char *path);
     bool load_bytes(const std::uint8_t *bytes, std::size_t length);
+    void close();
     bool valid() const;
     float intrinsic_width() const { return intrinsic_width_; }
     float intrinsic_height() const { return intrinsic_height_; }

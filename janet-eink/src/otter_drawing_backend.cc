@@ -615,11 +615,15 @@ SvgDocument::SvgDocument() = default;
 
 SvgDocument::~SvgDocument() = default;
 
+void SvgDocument::close() {
+    dom_.reset();
+    intrinsic_width_ = 0.0f;
+    intrinsic_height_ = 0.0f;
+}
+
 bool SvgDocument::set_dom(sk_sp<SkSVGDOM> dom) {
     if (!dom || dom->getRoot() == nullptr) {
-        dom_.reset();
-        intrinsic_width_ = 0.0f;
-        intrinsic_height_ = 0.0f;
+        close();
         return false;
     }
 

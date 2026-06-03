@@ -344,6 +344,11 @@
   [svg]
   ((native-fn 'svg-info) svg))
 
+(defn close-svg
+  [svg]
+  ((native-fn 'close-svg) svg)
+  nil)
+
 (defn create-image
   [opts]
   ((native-fn 'create-image) opts))

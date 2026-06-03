@@ -451,6 +451,12 @@ static Janet cfun_svg_info(int32_t argc, Janet *argv) {
     return janet_wrap_table(table);
 }
 
+static Janet cfun_close_svg(int32_t argc, Janet *argv) {
+    janet_fixarity(argc, 1);
+    get_svg(argv, 0)->close();
+    return janet_wrap_nil();
+}
+
 static Janet cfun_draw_image(int32_t argc, Janet *argv) {
     janet_fixarity(argc, 11);
     otter::RasterCanvas *canvas = get_canvas(argv, 0);
@@ -750,6 +756,10 @@ static const JanetReg common_cfuns[] = {
     {
         "svg-info", cfun_svg_info,
         "(skia/svg-info svg)\n\nReturn intrinsic SVG width and height when available."
+    },
+    {
+        "close-svg", cfun_close_svg,
+        "(skia/close-svg svg)\n\nRelease native resources held by an SVG handle."
     },
     {
         "create-image", cfun_create_image,

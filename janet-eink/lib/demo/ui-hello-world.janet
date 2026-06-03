@@ -99,7 +99,7 @@
       [ui/column {:gap 4}
        [ui/label {:font-size 24} "ui/svg: fit, fill, and anchors"]
        [ui/label {:font-size 16 :paint "6"}
-        "SVG DOM renders into assigned bounds"]]
+        "SVG DOM renders assigned bounds; missing sources use fallback"]]
       [ui/size {:width 220 :height 120}
        [ui/rect {:paint [{:fill "F"} {:stroke "C" :width 1}]}
         [ui/svg {:src demo-svg-source
@@ -111,7 +111,11 @@
         [ui/svg {:src demo-svg-source
                  :scale :fill
                  :x :center
-                 :y :center}]]]]]]])
+                 :y :center}]]]
+      [ui/size {:width 96 :height 120}
+       [ui/rect {:paint [{:fill "F"} {:stroke "C" :width 1}]}
+        [ui/svg {:src "lib/demo/missing-otter-mark.svg"
+                 :scale :fit}]]]]]]])
 
 (defn grid-label
   [paint text]

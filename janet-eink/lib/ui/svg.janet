@@ -1,8 +1,24 @@
 # Terminal SVG node.
+# TODO: Support external SVG resources such as linked images and fonts by
+# configuring Skia resource providers/font managers. Current support targets
+# self-contained SVG documents.
 
 (import ../skia :as skia)
 (import ./element :as elem)
 (import ./nodes :as nodes)
+
+
+(def fallback-svg-bytes
+  (string
+    "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100\" height=\"100\" viewBox=\"0 0 100 100\" fill=\"none\">"
+    "<g clip-path=\"url(#fallback-clip)\">"
+    "<rect width=\"100\" height=\"100\" fill=\"#F2F2F2\"/>"
+    "<path d=\"M11 11L89 89M89 11L11 89\" stroke=\"#222222\" stroke-width=\"5\" stroke-linecap=\"round\"/>"
+    "<rect x=\"2\" y=\"2\" width=\"96\" height=\"96\" stroke=\"#222222\" stroke-width=\"4\"/>"
+    "</g>"
+    "<defs><clipPath id=\"fallback-clip\"><rect width=\"100\" height=\"100\" fill=\"white\"/></clipPath></defs>"
+    "</svg>"))
+
 
 (defn- svg-handle?
   [value]
@@ -14,33 +30,68 @@
     (get props :src)
     (error "svg: props must include :src")))
 
+(defn- loaded-svg
+  [svg owned? load-error]
+  @{:svg svg
+    :owned? owned?
+    :load-error load-error})
+
+(defn- protected-error-message
+  [protected-result]
+  (string (get protected-result 1)))
+
+(defn- load-owned-source
+  [load-fn]
+  (let [loaded (protect (load-fn))]
+    (if (get loaded 0)
+      (loaded-svg (get loaded 1) true nil)
+      (let [fallback (protect (skia/load-svg-bytes fallback-svg-bytes))]
+        (if (get fallback 0)
+          (loaded-svg (get fallback 1) true (protected-error-message loaded))
+          (error (string "svg: failed to load fallback SVG after source load failed: "
+                         (protected-error-message fallback))))))))
+
 (defn- load-source
   [src]
   (cond
     (svg-handle? src)
-    src
+    (loaded-svg src false nil)
 
     (= :buffer (type src))
-    (skia/load-svg-bytes src)
+    (load-owned-source (fn [] (skia/load-svg-bytes src)))
 
     (string? src)
-    (skia/load-svg src)
+    (load-owned-source (fn [] (skia/load-svg src)))
 
     :else
     (error (string "svg: :src expected a Skia SVG handle, SVG byte buffer, or path string, got " (type src)))))
+
+(defn- close-owned-svg!
+  [self]
+  (when (and (get self :svg-owned? false) (get self :svg nil))
+    (skia/close-svg (get self :svg)))
+  (put self :svg nil)
+  (put self :svg-info nil)
+  (put self :svg-owned? false)
+  (put self :svg-load-error nil)
+  (put self :loaded-src nil)
+  self)
 
 (defn- ensure-svg!
   [self]
   (let [src (source (get self :props @{}))]
     (when (or (nil? (get self :svg nil))
               (not (deep= src (get self :loaded-src nil))))
-      (let [svg (load-source src)
+      (let [loaded (load-source src)
+            svg (get loaded :svg)
             info (skia/svg-info svg)]
+        (close-owned-svg! self)
         (put self :svg svg)
         (put self :svg-info info)
+        (put self :svg-owned? (get loaded :owned? false))
+        (put self :svg-load-error (get loaded :load-error nil))
         (put self :loaded-src src)))
     (get self :svg)))
-
 
 (defn- scale-value
   [props]
@@ -112,9 +163,7 @@
 
 (defn- svg-unmount
   [self]
-  (put self :svg nil)
-  (put self :svg-info nil)
-  (put self :loaded-src nil)
+  (close-owned-svg! self)
   ((get nodes/TerminalNode :unmount) self))
 
 (defn- svg-should-reconcile?
@@ -143,6 +192,7 @@
       :x :left | :center | :right | 0 | 0.5 | 1, default :center
       :y :top | :center | :bottom | 0 | 0.5 | 1, default :center
 
+  If loading the source fails, the node renders a built-in fallback SVG.
   The node measures to the incoming constraints and renders into its assigned bounds."
   [& args]
   (let [props (elem/require-props! "svg" args)
@@ -151,7 +201,9 @@
     (elem/expect-no-children! "svg" children)
     (nodes/make-node SvgNode :svg props @{:ui/builtin? true
                                           :constructor svg
-                                          :retain-fields [:svg :svg-info :loaded-src]
+                                          :retain-fields [:svg :svg-info :svg-owned? :svg-load-error :loaded-src]
                                           :svg nil
                                           :svg-info nil
+                                          :svg-owned? false
+                                          :svg-load-error nil
                                           :loaded-src nil})))
