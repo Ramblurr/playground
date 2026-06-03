@@ -4,7 +4,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #include <vector>
+#include <linux/input.h>
 
 #include <janet.h>
 #include <SDL.h>
@@ -22,6 +24,7 @@
 
 #include "janet_skia_common.hh"
 #include "otter_drawing_backend.hh"
+#include "otter_input_evdev.hh"
 
 namespace {
 
@@ -730,13 +733,8 @@ void run_event_loop(
                     if (!button_hit_for_window_point(renderer, window, bezel, canvas, event.button.x, event.button.y, &hit)) {
                         panic_sdl("SDL_GetRendererOutputSize", texture, renderer, window, sdl_initialized);
                     }
-                    const bool clicked = press_started_on_button && hit;
                     press_started_on_button = false;
                     redraw_if_changed(hit, false);
-                    if (clicked) {
-                        std::printf("hello world\n");
-                        std::fflush(stdout);
-                    }
                 }
                 break;
             case SDL_WINDOWEVENT:
@@ -753,6 +751,443 @@ void run_event_loop(
                 break;
         }
     }
+}
+
+struct SdlInputSession {
+    SDL_Window *window = nullptr;
+    SDL_Renderer *renderer = nullptr;
+    const BezelSpec *bezel = nullptr;
+    int canvas_width = otter::kKoboScreenWidth;
+    int canvas_height = otter::kKoboScreenHeight;
+    int active_hardware_code = 0;
+};
+
+std::vector<SdlInputSession *> open_sdl_input_sessions;
+
+Janet keyword(const char *name) {
+    return janet_ckeywordv(name);
+}
+
+void remove_sdl_input_session(SdlInputSession *session) {
+    for (std::size_t i = 0; i < open_sdl_input_sessions.size(); ++i) {
+        if (open_sdl_input_sessions[i] == session) {
+            open_sdl_input_sessions.erase(open_sdl_input_sessions.begin() + static_cast<std::ptrdiff_t>(i));
+            return;
+        }
+    }
+}
+
+void close_sdl_input_session(SdlInputSession *session) {
+    if (session == nullptr) {
+        return;
+    }
+    if (session->renderer != nullptr) {
+        SDL_DestroyRenderer(session->renderer);
+        session->renderer = nullptr;
+    }
+    if (session->window != nullptr) {
+        SDL_DestroyWindow(session->window);
+        session->window = nullptr;
+    }
+    remove_sdl_input_session(session);
+    if (open_sdl_input_sessions.empty()) {
+        SDL_Quit();
+    }
+}
+
+int sdl_input_gc(void *p, size_t s) {
+    (void) s;
+    auto *session = static_cast<SdlInputSession *>(p);
+    close_sdl_input_session(session);
+    session->~SdlInputSession();
+    return 0;
+}
+
+const JanetAbstractType sdl_input_type = {
+    "otter/sdl-input-session",
+    sdl_input_gc,
+    nullptr,
+    nullptr,
+    nullptr,
+    JANET_ATEND_PUT
+};
+
+SdlInputSession *get_sdl_input_session(Janet *argv, int32_t n) {
+    return static_cast<SdlInputSession *>(janet_getabstract(argv, n, &sdl_input_type));
+}
+
+Janet sdl_error_result(const char *operation) {
+    JanetTable *table = janet_table(3);
+    janet_table_put(table, keyword("error"), janet_wrap_integer(-1));
+    janet_table_put(table, keyword("operation"), janet_cstringv(operation));
+    const char *message = SDL_GetError();
+    janet_table_put(table, keyword("message"), janet_cstringv(message != nullptr && message[0] != '\0' ? message : "unknown SDL error"));
+    return janet_wrap_table(table);
+}
+
+Janet sdl_timeout_result() {
+    JanetTable *table = janet_table(2);
+    janet_table_put(table, keyword("timeout?"), janet_wrap_true());
+    janet_table_put(table, keyword("events"), janet_wrap_array(janet_array(0)));
+    return janet_wrap_table(table);
+}
+
+Janet sdl_ok_result(JanetArray *events) {
+    JanetTable *table = janet_table(2);
+    janet_table_put(table, keyword("ok?"), janet_wrap_true());
+    janet_table_put(table, keyword("events"), janet_wrap_array(events));
+    return janet_wrap_table(table);
+}
+
+Janet sdl_time_table() {
+    const std::uint64_t millis = SDL_GetTicks64();
+    JanetTable *time = janet_table(2);
+    janet_table_put(time, keyword("sec"), janet_wrap_number(static_cast<double>(millis / 1000U)));
+    janet_table_put(time, keyword("usec"), janet_wrap_number(static_cast<double>((millis % 1000U) * 1000U)));
+    return janet_wrap_table(time);
+}
+
+Janet sdl_source(const char *kind) {
+    JanetTable *source = janet_table(1);
+    janet_table_put(source, keyword("kind"), keyword(kind));
+    return janet_wrap_table(source);
+}
+
+
+Janet raw_key_record(int code, int value, const char *source_kind) {
+    JanetTable *record = janet_table(5);
+    janet_table_put(record, keyword("type"), janet_wrap_integer(EV_KEY));
+    janet_table_put(record, keyword("code"), janet_wrap_integer(code));
+    janet_table_put(record, keyword("value"), janet_wrap_integer(value));
+    janet_table_put(record, keyword("time"), sdl_time_table());
+    janet_table_put(record, keyword("source"), sdl_source(source_kind));
+    return janet_wrap_table(record);
+}
+
+Janet raw_sdl_key_record(const SDL_KeyboardEvent &event, int value) {
+    const int code = static_cast<int>(event.keysym.sym);
+    JanetTable *record = janet_unwrap_table(raw_key_record(code, value, "sdl"));
+    JanetTable *source = janet_table(4);
+    janet_table_put(source, keyword("kind"), keyword("sdl"));
+    janet_table_put(source, keyword("device"), janet_cstringv("keyboard"));
+    janet_table_put(source, keyword("sdl-keycode"), janet_wrap_integer(static_cast<int>(event.keysym.sym)));
+    janet_table_put(source, keyword("sdl-scancode"), janet_wrap_integer(static_cast<int>(event.keysym.scancode)));
+    janet_table_put(record, keyword("source"), janet_wrap_table(source));
+    return janet_wrap_table(record);
+}
+
+const HardwareControlSpec *hit_hardware_control(SdlInputSession *session, int window_x, int window_y, int *output_x, int *output_y, ChromeLayout *layout) {
+    if (session == nullptr || session->renderer == nullptr || session->window == nullptr || session->bezel == nullptr) {
+        return nullptr;
+    }
+    int output_width = 0;
+    int output_height = 0;
+    if (SDL_GetRendererOutputSize(session->renderer, &output_width, &output_height) != 0) {
+        return nullptr;
+    }
+    map_window_point_to_output(session->window, output_width, output_height, window_x, window_y, output_x, output_y);
+    *layout = chrome_layout(session->bezel, output_width, output_height, session->canvas_width, session->canvas_height);
+    for (std::size_t i = 0; i < session->bezel->hardware_control_count; ++i) {
+        const HardwareControlSpec &control = session->bezel->hardware_controls[i];
+        if (rect_contains(hardware_control_rect(*session->bezel, layout->canvas, control), *output_x, *output_y)) {
+            return &control;
+        }
+    }
+    return nullptr;
+}
+
+int hardware_control_key_code(const HardwareControlSpec *control) {
+    if (control == nullptr || control->id == nullptr) {
+        return 0;
+    }
+    if (std::strcmp(control->id, "page-back") == 0) {
+        return 193;
+    }
+    if (std::strcmp(control->id, "page-forward") == 0) {
+        return 194;
+    }
+    return 0;
+}
+
+const char *pointer_button_name(Uint8 button) {
+    switch (button) {
+        case SDL_BUTTON_LEFT: return "primary";
+        case SDL_BUTTON_RIGHT: return "secondary";
+        case SDL_BUTTON_MIDDLE: return "middle";
+        default: return "other";
+    }
+}
+
+Janet pointer_event(const char *event_name, int x, int y) {
+    JanetTable *event = janet_table(5);
+    janet_table_put(event, keyword("event"), keyword(event_name));
+    janet_table_put(event, keyword("source"), keyword("mouse"));
+    janet_table_put(event, keyword("x"), janet_wrap_integer(x));
+    janet_table_put(event, keyword("y"), janet_wrap_integer(y));
+    janet_table_put(event, keyword("time"), sdl_time_table());
+    return janet_wrap_table(event);
+}
+
+bool event_matches_session(SdlInputSession *session, const SDL_Event &event) {
+    if (session == nullptr || session->window == nullptr) {
+        return false;
+    }
+    const Uint32 window_id = SDL_GetWindowID(session->window);
+    switch (event.type) {
+        case SDL_KEYDOWN:
+        case SDL_KEYUP:
+            return event.key.windowID == window_id;
+        case SDL_TEXTINPUT:
+            return event.text.windowID == window_id;
+        case SDL_MOUSEMOTION:
+            return event.motion.windowID == window_id;
+        case SDL_MOUSEBUTTONDOWN:
+        case SDL_MOUSEBUTTONUP:
+            return event.button.windowID == window_id;
+        case SDL_MOUSEWHEEL:
+            return event.wheel.windowID == window_id;
+        case SDL_WINDOWEVENT:
+            return event.window.windowID == window_id;
+        case SDL_QUIT:
+            return true;
+        default:
+            return false;
+    }
+}
+
+void translate_sdl_event(SdlInputSession *session, const SDL_Event &event, JanetArray *events) {
+    if (!event_matches_session(session, event)) {
+        return;
+    }
+    switch (event.type) {
+        case SDL_KEYDOWN:
+            janet_array_push(events, raw_sdl_key_record(event.key, event.key.repeat ? 2 : 1));
+            break;
+        case SDL_KEYUP:
+            janet_array_push(events, raw_sdl_key_record(event.key, 0));
+            break;
+        case SDL_TEXTINPUT: {
+            JanetTable *text = janet_table(4);
+            janet_table_put(text, keyword("event"), keyword("text-input"));
+            janet_table_put(text, keyword("text"), janet_cstringv(event.text.text));
+            janet_table_put(text, keyword("source"), keyword("sdl"));
+            janet_table_put(text, keyword("time"), sdl_time_table());
+            janet_array_push(events, janet_wrap_table(text));
+            break;
+        }
+        case SDL_MOUSEMOTION: {
+            JanetTable *move = janet_unwrap_table(pointer_event("pointer-move", event.motion.x, event.motion.y));
+            janet_table_put(move, keyword("buttons"), janet_wrap_integer(static_cast<int>(event.motion.state)));
+            janet_array_push(events, janet_wrap_table(move));
+            break;
+        }
+        case SDL_MOUSEBUTTONDOWN:
+        case SDL_MOUSEBUTTONUP: {
+            const bool pressed = event.type == SDL_MOUSEBUTTONDOWN;
+            int output_x = 0;
+            int output_y = 0;
+            ChromeLayout layout;
+            const HardwareControlSpec *control = event.button.button == SDL_BUTTON_LEFT ? hit_hardware_control(session, event.button.x, event.button.y, &output_x, &output_y, &layout) : nullptr;
+            const int hardware_code = hardware_control_key_code(control);
+            if (pressed && hardware_code != 0) {
+                session->active_hardware_code = hardware_code;
+                janet_array_push(events, raw_key_record(hardware_code, 1, "simulated-hardware"));
+                break;
+            }
+            if (!pressed && session->active_hardware_code != 0) {
+                janet_array_push(events, raw_key_record(session->active_hardware_code, 0, "simulated-hardware"));
+                session->active_hardware_code = 0;
+                break;
+            }
+            JanetTable *button = janet_unwrap_table(pointer_event("pointer-button", event.button.x, event.button.y));
+            janet_table_put(button, keyword("button"), keyword(pointer_button_name(event.button.button)));
+            janet_table_put(button, keyword("pressed?"), pressed ? janet_wrap_true() : janet_wrap_false());
+            janet_table_put(button, keyword("native-button"), janet_wrap_integer(event.button.button));
+            janet_array_push(events, janet_wrap_table(button));
+            break;
+        }
+        case SDL_MOUSEWHEEL: {
+            int mouse_x = 0;
+            int mouse_y = 0;
+            SDL_GetMouseState(&mouse_x, &mouse_y);
+            JanetTable *scroll = janet_unwrap_table(pointer_event("pointer-scroll", mouse_x, mouse_y));
+            janet_table_put(scroll, keyword("delta-x"), janet_wrap_integer(event.wheel.x));
+            janet_table_put(scroll, keyword("delta-y"), janet_wrap_integer(event.wheel.y));
+            janet_array_push(events, janet_wrap_table(scroll));
+            break;
+        }
+        case SDL_WINDOWEVENT:
+            if (event.window.event == SDL_WINDOWEVENT_CLOSE) {
+                JanetTable *close = janet_table(3);
+                janet_table_put(close, keyword("event"), keyword("window-close-request"));
+                janet_table_put(close, keyword("source"), keyword("sdl"));
+                janet_table_put(close, keyword("time"), sdl_time_table());
+                janet_array_push(events, janet_wrap_table(close));
+            } else if (event.window.event == SDL_WINDOWEVENT_RESIZED || event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
+                JanetTable *resize = janet_table(5);
+                janet_table_put(resize, keyword("event"), keyword("window-resize"));
+                janet_table_put(resize, keyword("source"), keyword("sdl"));
+                janet_table_put(resize, keyword("width"), janet_wrap_integer(event.window.data1));
+                janet_table_put(resize, keyword("height"), janet_wrap_integer(event.window.data2));
+                janet_table_put(resize, keyword("time"), sdl_time_table());
+                janet_array_push(events, janet_wrap_table(resize));
+            }
+            break;
+        case SDL_QUIT: {
+            JanetTable *close = janet_table(3);
+            janet_table_put(close, keyword("event"), keyword("window-close-request"));
+            janet_table_put(close, keyword("source"), keyword("sdl"));
+            janet_table_put(close, keyword("time"), sdl_time_table());
+            janet_array_push(events, janet_wrap_table(close));
+            break;
+        }
+        default:
+            break;
+    }
+}
+
+bool render_input_session(SdlInputSession *session) {
+    int output_width = 0;
+    int output_height = 0;
+    if (SDL_GetRendererOutputSize(session->renderer, &output_width, &output_height) != 0) {
+        return false;
+    }
+    const ChromeLayout layout = chrome_layout(session->bezel, output_width, output_height, session->canvas_width, session->canvas_height);
+    if (SDL_SetRenderDrawColor(session->renderer, 64, 64, 64, 255) != 0 || SDL_RenderClear(session->renderer) != 0) {
+        return false;
+    }
+    SDL_Rect canvas_rect = {layout.canvas.x, layout.canvas.y, layout.canvas.width, layout.canvas.height};
+    if (SDL_SetRenderDrawColor(session->renderer, 245, 245, 245, 255) != 0 || SDL_RenderFillRect(session->renderer, &canvas_rect) != 0) {
+        return false;
+    }
+    if (session->bezel != nullptr) {
+        const SkImageInfo info = SkImageInfo::Make(output_width, output_height, kRGBA_8888_SkColorType, kPremul_SkAlphaType);
+        sk_sp<SkSurface> surface = SkSurfaces::Raster(info);
+        if (!surface) {
+            return false;
+        }
+        SkCanvas *chrome = surface->getCanvas();
+        chrome->clear(SK_ColorTRANSPARENT);
+        draw_device_bezel(chrome, layout);
+        SkPixmap pixmap;
+        if (!surface->peekPixels(&pixmap)) {
+            return false;
+        }
+        SDL_Texture *texture = SDL_CreateTexture(session->renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, output_width, output_height);
+        if (texture == nullptr) {
+            return false;
+        }
+        bool ok = SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_BLEND) == 0 &&
+                  SDL_UpdateTexture(texture, nullptr, pixmap.addr(), static_cast<int>(pixmap.rowBytes())) == 0;
+        const SDL_Rect destination = {0, 0, output_width, output_height};
+        ok = ok && SDL_RenderCopy(session->renderer, texture, nullptr, &destination) == 0;
+        SDL_DestroyTexture(texture);
+        if (!ok) {
+            return false;
+        }
+    }
+    SDL_RenderPresent(session->renderer);
+    return true;
+}
+
+Janet cfun_sdl_input_open(int32_t argc, Janet *argv) {
+    janet_arity(argc, 0, 1);
+    (void) argv;
+    set_default_env("SDL_VIDEO_WAYLAND_WMCLASS", "Otter");
+    set_default_env("SDL_VIDEO_X11_WMCLASS", "Otter");
+    SDL_SetMainReady();
+    SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
+    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
+    SDL_SetHint(SDL_HINT_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR, "0");
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) != 0) {
+        return sdl_error_result("SDL_Init");
+    }
+    SDL_StartTextInput();
+
+    const BezelSpec *bezel = selected_bezel_spec();
+    SDL_Window *window = SDL_CreateWindow(
+        "Otter Input Dump",
+        SDL_WINDOWPOS_UNDEFINED,
+        SDL_WINDOWPOS_UNDEFINED,
+        chrome_window_width(bezel, otter::kKoboScreenWidth),
+        chrome_window_height(bezel, otter::kKoboScreenHeight),
+        SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
+    if (window == nullptr) {
+        SDL_Quit();
+        return sdl_error_result("SDL_CreateWindow");
+    }
+    SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    if (renderer == nullptr) {
+        SDL_ClearError();
+        renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
+    }
+    if (renderer == nullptr) {
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+        return sdl_error_result("SDL_CreateRenderer");
+    }
+
+    void *memory = janet_abstract(&sdl_input_type, sizeof(SdlInputSession));
+    auto *session = new (memory) SdlInputSession();
+    session->window = window;
+    session->renderer = renderer;
+    session->bezel = bezel;
+    open_sdl_input_sessions.push_back(session);
+    if (!render_input_session(session)) {
+        close_sdl_input_session(session);
+        return sdl_error_result("SDL input render");
+    }
+    return janet_wrap_abstract(session);
+}
+
+Janet cfun_sdl_input_close(int32_t argc, Janet *argv) {
+    janet_fixarity(argc, 1);
+    SdlInputSession *session = get_sdl_input_session(argv, 0);
+    close_sdl_input_session(session);
+    return janet_wrap_true();
+}
+
+Janet cfun_sdl_input_close_all(int32_t argc, Janet *argv) {
+    janet_fixarity(argc, 0);
+    (void) argv;
+    int32_t closed = 0;
+    while (!open_sdl_input_sessions.empty()) {
+        SdlInputSession *session = open_sdl_input_sessions.back();
+        if (session != nullptr && session->window != nullptr) {
+            ++closed;
+        }
+        close_sdl_input_session(session);
+    }
+    return janet_wrap_integer(closed);
+}
+
+Janet cfun_sdl_input_wait_event(int32_t argc, Janet *argv) {
+    janet_arity(argc, 1, 2);
+    if (open_sdl_input_sessions.empty()) {
+        return sdl_timeout_result();
+    }
+    SdlInputSession *session = open_sdl_input_sessions.back();
+    const int timeout_ms = janet_getinteger(argv, 0);
+    const int max_events = argc >= 2 ? janet_getinteger(argv, 1) : 256;
+    JanetArray *events = janet_array(0);
+    SDL_Event event;
+    int got_event = 0;
+    if (timeout_ms < 0) {
+        got_event = SDL_WaitEvent(&event);
+    } else {
+        got_event = SDL_WaitEventTimeout(&event, timeout_ms);
+    }
+    if (got_event == 0) {
+        return sdl_timeout_result();
+    }
+    translate_sdl_event(session, event, events);
+    while (events->count < max_events && SDL_PollEvent(&event) != 0) {
+        translate_sdl_event(session, event, events);
+    }
+    if (events->count == 0) {
+        return sdl_timeout_result();
+    }
+    return sdl_ok_result(events);
 }
 
 }  // namespace
@@ -796,6 +1231,7 @@ static Janet cfun_present(int32_t argc, Janet *argv) {
     set_default_env("SDL_VIDEO_X11_WMCLASS", "Otter");
 
     SDL_SetMainReady();
+    SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
     SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
     SDL_SetHint(SDL_HINT_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR, "0");
 
@@ -863,10 +1299,28 @@ static const JanetReg platform_cfuns[] = {
         "(skia/present canvas &opt options)\n\n"
         "Open an SDL window, present a raster canvas with desktop diagnostics chrome, and optionally run the static event loop."
     },
+    {
+        "sdl-input-open", cfun_sdl_input_open,
+        "(skia/sdl-input-open &opt options)\n\n"
+        "Open an SDL low-level input dump window/session."
+    },
+    {
+        "sdl-input-close", cfun_sdl_input_close,
+        "(skia/sdl-input-close session)\n\nClose an SDL input dump session."
+    },
+    {
+        "sdl-input-close-all", cfun_sdl_input_close_all,
+        "(skia/sdl-input-close-all)\n\nClose all SDL input dump sessions."
+    },
+    {
+        "sdl-input-wait-event", cfun_sdl_input_wait_event,
+        "(skia/sdl-input-wait-event timeout-ms &opt max-events)\n\nPoll SDL input and simulator hardware controls."
+    },
     {NULL, NULL, NULL}
 };
 
 JANET_MODULE_ENTRY(JanetTable *env) {
     otter::binding::register_common_cfuns(env, "skia");
+    otter::input::register_evdev_cfuns(env, "skia");
     janet_cfuns(env, "skia", platform_cfuns);
 }

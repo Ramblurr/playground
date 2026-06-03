@@ -50,6 +50,10 @@ stdenv.mkDerivation {
       (def present-binding (skia-module (quote present)))
       (when (nil? present-binding)
         (error "expected desktop skia native module to export present"))
+      (when (nil? (skia-module (quote input-wait-event)))
+        (error "expected desktop skia native module to export input-wait-event"))
+      (when (nil? (skia-module (quote sdl-input-wait-event)))
+        (error "expected desktop skia native module to export sdl-input-wait-event"))
       (defn fill-gray [gray]
         (def value (/ gray 255.0))
         @{:style :fill

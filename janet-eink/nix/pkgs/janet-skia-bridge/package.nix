@@ -36,7 +36,7 @@ stdenv.mkDerivation {
       -L ${skia}/lib \
       -Wl,-rpath,'$ORIGIN' \
       -shared -o janet-skia.so \
-      src/janet_skia.cc src/janet_skia_common.cc src/otter_drawing_backend.cc \
+      src/janet_skia.cc src/janet_skia_common.cc src/otter_drawing_backend.cc src/otter_input_evdev.cc \
       -ljanet -lfbink -lskia -lskshaper -lskunicode_icu -lskunicode_core
 
     export LD_LIBRARY_PATH="$PWD:${janet}/lib:${fbink}/lib:${skia}/lib''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
@@ -50,6 +50,10 @@ stdenv.mkDerivation {
       (def stats-fn ((skia-module (quote stats)) :value))
       (when (nil? (skia-module (quote present)))
         (error "expected kobo skia native module to export present"))
+      (when (nil? (skia-module (quote input-wait-event)))
+        (error "expected kobo skia native module to export input-wait-event"))
+      (when (nil? (skia-module (quote input-open-scan)))
+        (error "expected kobo skia native module to export input-open-scan"))
       (defn fill-gray [gray]
         (def value (/ gray 255.0))
         @{:style :fill

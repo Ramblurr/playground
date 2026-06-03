@@ -26,6 +26,13 @@
     :present? (= :function (type (get provider :present)))
     :present-options? (= :function (type (get provider :present-options)))
     :run-static? (= :function (type (get provider :run-static)))
+    :input-open? (= :function (type (get provider :input-open)))
+    :input-open-default? (= :function (type (get provider :input-open-default)))
+    :input-fdopen? (= :function (type (get provider :input-fdopen)))
+    :input-close? (= :function (type (get provider :input-close)))
+    :input-close-all? (= :function (type (get provider :input-close-all)))
+    :input-wait-event? (= :function (type (get provider :input-wait-event)))
+    :input-poll? (= :function (type (get provider :input-poll)))
     :capabilities (get provider :capabilities)})
 
 (defn with-pixel-format-env
@@ -50,13 +57,20 @@
                    :present? true
                    :present-options? true
                    :run-static? true
+                   :input-open? true
+                   :input-open-default? true
+                   :input-fdopen? true
+                   :input-close? true
+                   :input-close-all? true
+                   :input-wait-event? true
+                   :input-poll? true
                    :capabilities @{:invert-output? true
                                    :night-mode? true
                                    :hardware-night-mode? false
                                    :software-dither? true
                                    :hardware-dither? false}}
                  observed)
-          "desktop provider exposes native loading, screen size, presentation, and run-static"))))
+          "desktop provider exposes native loading, screen size, presentation, input hooks, and run-static"))))
 
 (deftest desktop-provider-defaults-to-rgba32-and-honors-pixel-format-env
   (let [desktop (require-module "../lib/platform/desktop")]
@@ -121,13 +135,20 @@
                    :present? true
                    :present-options? true
                    :run-static? true
+                   :input-open? true
+                   :input-open-default? true
+                   :input-fdopen? true
+                   :input-close? true
+                   :input-close-all? true
+                   :input-wait-event? true
+                   :input-poll? true
                    :capabilities @{:invert-output? true
                                    :night-mode? false
                                    :hardware-night-mode? false
                                    :software-dither? true
                                    :hardware-dither? false}}
                  observed)
-          "Kobo provider exposes native loading, screen size, presentation, and run-static"))))
+          "Kobo provider exposes native loading, screen size, presentation, input hooks, and run-static"))))
 
 (deftest kobo-present-options-normalize-inversion-and-guard-night-mode
   (let [kobo (require-module "../lib/platform/kobo")]

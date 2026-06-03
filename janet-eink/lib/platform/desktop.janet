@@ -112,6 +112,56 @@
   [output-width output-height]
   ((native-fn 'fixed-viewport) output-width output-height default-width default-height))
 
+(var- active-input-source nil)
+
+(defn input-open
+  [path &opt options]
+  (set active-input-source :evdev)
+  ((native-fn 'input-open) path (or options {})))
+
+(defn input-open-default
+  [&opt options]
+  (set active-input-source :sdl)
+  ((native-fn 'sdl-input-open) (or options {})))
+
+(defn input-fdopen
+  [fd path &opt options]
+  (set active-input-source :evdev)
+  ((native-fn 'input-fdopen) fd path (or options {})))
+
+(defn input-close
+  [handle]
+  (case active-input-source
+    :sdl ((native-fn 'sdl-input-close) handle)
+    ((native-fn 'input-close) handle)))
+
+(defn input-close-all
+  []
+  (def closed
+    (case active-input-source
+      :sdl ((native-fn 'sdl-input-close-all))
+      :evdev ((native-fn 'input-close-all))
+      (do
+        ((native-fn 'sdl-input-close-all))
+        ((native-fn 'input-close-all)))))
+  (set active-input-source nil)
+  closed)
+
+(defn input-wait-event
+  [timeout-ms &opt max-events]
+  (if max-events
+    ((native-fn 'input-wait-event) timeout-ms max-events)
+    ((native-fn 'input-wait-event) timeout-ms)))
+
+(defn input-poll
+  [timeout-ms &opt max-events]
+  (def poll-fn (if (= active-input-source :sdl)
+                 (native-fn 'sdl-input-wait-event)
+                 (native-fn 'input-wait-event)))
+  (if max-events
+    (poll-fn timeout-ms max-events)
+    (poll-fn timeout-ms)))
+
 (defn run-static
   [draw &opt options]
   (let [size (screen-size)
@@ -128,4 +178,11 @@
     :present-options present-options
     :run-static run-static
     :fixed-viewport fixed-viewport
+    :input-open input-open
+    :input-open-default input-open-default
+    :input-fdopen input-fdopen
+    :input-close input-close
+    :input-close-all input-close-all
+    :input-wait-event input-wait-event
+    :input-poll input-poll
     :capabilities capabilities})

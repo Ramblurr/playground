@@ -18,11 +18,11 @@ SHAPING_LIBS := -lskshaper -lskunicode_icu -lskunicode_core
 
 native: $(NATIVE_MODULE)
 
-$(NATIVE_MODULE): src/janet_otter_sdl.cc src/janet_skia_common.cc src/janet_skia_common.hh src/otter_drawing_backend.cc src/otter_drawing_backend.hh
+$(NATIVE_MODULE): src/janet_otter_sdl.cc src/janet_skia_common.cc src/janet_skia_common.hh src/otter_drawing_backend.cc src/otter_drawing_backend.hh src/otter_input_evdev.cc src/otter_input_evdev.hh
 	mkdir -p $(BUILD_DIR)
 	$(CXX) $(WARN_CXXFLAGS) $(OPT_CXXFLAGS) $(CPPFLAGS) $(CXXFLAGS) $(PC_CFLAGS) \
 		-shared -o $@ \
-		src/janet_otter_sdl.cc src/janet_skia_common.cc src/otter_drawing_backend.cc \
+		src/janet_otter_sdl.cc src/janet_skia_common.cc src/otter_drawing_backend.cc src/otter_input_evdev.cc \
 		$(LDFLAGS) $(PC_RPATHS) $(PC_LIBS) $(SHAPING_LIBS)
 
 test: $(NATIVE_MODULE)

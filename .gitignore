@@ -6,3 +6,5 @@ extra/
 !clojure-eink/.clj-kondo/config.edn
 .pi
 archive
+.worktrees/
+.tmuxb_session

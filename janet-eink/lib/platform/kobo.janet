@@ -63,6 +63,36 @@
   (def opts (present-options options))
   ((native-fn 'present) canvas (get opts :flash?) (get opts :invert-output?) (get opts :night-mode?)))
 
+(defn input-open
+  [path &opt options]
+  ((native-fn 'input-open) path (or options {})))
+
+(defn input-open-default
+  [&opt options]
+  ((native-fn 'input-open-scan) (or options {})))
+
+(defn input-fdopen
+  [fd path &opt options]
+  ((native-fn 'input-fdopen) fd path (or options {})))
+
+(defn input-close
+  [handle]
+  ((native-fn 'input-close) handle))
+
+(defn input-close-all
+  []
+  ((native-fn 'input-close-all)))
+
+(defn input-wait-event
+  [timeout-ms &opt max-events]
+  (if max-events
+    ((native-fn 'input-wait-event) timeout-ms max-events)
+    ((native-fn 'input-wait-event) timeout-ms)))
+
+(defn input-poll
+  [timeout-ms &opt max-events]
+  (input-wait-event timeout-ms max-events))
+
 (defn run-static
   [draw &opt options]
   (def size (screen-size))
@@ -78,4 +108,11 @@
     :present present
     :present-options present-options
     :run-static run-static
+    :input-open input-open
+    :input-open-default input-open-default
+    :input-fdopen input-fdopen
+    :input-close input-close
+    :input-close-all input-close-all
+    :input-wait-event input-wait-event
+    :input-poll input-poll
     :capabilities capabilities})
