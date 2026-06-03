@@ -8,10 +8,8 @@
 # struct. Remaining slots are children/arguments. Arrays in child positions are
 # child groups and are flattened; tuple values remain element markup.
 
-(defn props?
-  "Returns true when `x` can be used as an element props map."
-  [x]
-  (or (table? x) (struct? x)))
+(import ./util :as util)
+
 
 (defn element?
   "Returns true when `x` is tuple markup with a head slot."
@@ -36,14 +34,11 @@
   [x]
   (function? x))
 
-(defn- type-name
-  [x]
-  (string (type x)))
 
 (defn- assert-indexed-list!
   [xs who]
   (unless (or (array? xs) (tuple? xs) (nil? xs))
-    (error (string who ": expected an array or tuple of values, got " (type-name xs))))
+    (error (string who ": expected an array or tuple of values, got " (util/type-name xs))))
   xs)
 
 (defn- slice->array
@@ -68,7 +63,7 @@
   "Returns true when the first argument slot is a props table/struct."
   [args]
   (assert-indexed-list! args "props-supplied?")
-  (and args (> (length args) 0) (props? (get args 0))))
+  (and args (> (length args) 0) (util/props? (get args 0))))
 
 (defn parse-args
   "Parses post-head constructor args.
@@ -93,7 +88,7 @@
     nil
 
     (not (tuple? el))
-    (error (string "parse-element: expected tuple element markup, got " (type-name el)))
+    (error (string "parse-element: expected tuple element markup, got " (util/type-name el)))
 
     (= 0 (length el))
     (error "parse-element: expected tuple element markup with a head, got empty tuple")
@@ -123,7 +118,7 @@
   [el]
   (when-let [parsed (parse-element el)]
     (let [raw-second (get el 1 nil)]
-      (when (props? raw-second)
+      (when (util/props? raw-second)
         (get parsed 1)))))
 
 (defn- identity-convert
@@ -195,7 +190,7 @@
   "Raises unless `head` is callable; returns `head` otherwise."
   [head &opt element]
   (unless (callable-head? head)
-    (error (string "element head must be callable, got " (type-name head)
+    (error (string "element head must be callable, got " (util/type-name head)
                    (if element (string " in " element) ""))))
   head)
 
@@ -204,10 +199,10 @@
   [value &opt who]
   (unless (element? value)
     (error (string (or who "element") ": expected tuple element markup with a callable head, got "
-                   (type-name value))))
+                   (util/type-name value))))
   (let [head (element-head value)]
     (unless (callable-head? head)
-      (error (string (or who "element") ": expected callable head, got " (type-name head)))))
+      (error (string (or who "element") ": expected callable head, got " (util/type-name head)))))
   value)
 
 (defn require-props!
@@ -265,5 +260,5 @@
   "Raises unless `x` is a positive number; returns `x` otherwise."
   [who x]
   (unless (positive-number? x)
-    (error (string who ": expected a positive number, got " (type-name x))))
+    (error (string who ": expected a positive number, got " (util/type-name x))))
   x)

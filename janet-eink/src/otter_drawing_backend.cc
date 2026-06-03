@@ -9,6 +9,7 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <sstream>
 
 #include "codec/SkCodec.h"
 #include "core/SkCanvas.h"
@@ -26,6 +27,7 @@
 #include "core/SkString.h"
 #include "core/SkTypeface.h"
 #include "ports/SkFontMgr_directory.h"
+#include "modules/skshaper/include/SkShaper_harfbuzz.h"
 
 namespace otter {
 namespace {
@@ -113,6 +115,221 @@ int normalize_weight(int weight) {
                       static_cast<int>(SkFontStyle::kInvisible_Weight),
                       static_cast<int>(SkFontStyle::kExtraBlack_Weight));
 }
+
+int normalize_width(int width) {
+    if (width <= 0) {
+        return SkFontStyle::kNormal_Width;
+    }
+    return std::clamp(width,
+                      static_cast<int>(SkFontStyle::kUltraCondensed_Width),
+                      static_cast<int>(SkFontStyle::kUltraExpanded_Width));
+}
+
+SkFontStyle font_style_from_options(const FontOptions &options) {
+    return SkFontStyle(normalize_weight(options.weight), normalize_width(options.width), decode_slant(options.slant));
+}
+
+bool feature_tag_char(char ch) {
+    return (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9');
+}
+
+bool parse_unsigned_size(const std::string &token, std::size_t begin, std::size_t end, std::size_t *value) {
+    if (value == nullptr || begin >= end) {
+        return false;
+    }
+    std::size_t out = 0;
+    for (std::size_t i = begin; i < end; ++i) {
+        const char ch = token[i];
+        if (ch < '0' || ch > '9') {
+            return false;
+        }
+        const std::size_t digit = static_cast<std::size_t>(ch - '0');
+        if (out > (std::numeric_limits<std::size_t>::max() - digit) / 10U) {
+            return false;
+        }
+        out = out * 10U + digit;
+    }
+    *value = out;
+    return true;
+}
+
+bool parse_unsigned_u32(const std::string &token, std::size_t begin, std::size_t end, std::uint32_t *value) {
+    std::size_t parsed = 0;
+    if (!parse_unsigned_size(token, begin, end, &parsed) || parsed > std::numeric_limits<std::uint32_t>::max()) {
+        return false;
+    }
+    *value = static_cast<std::uint32_t>(parsed);
+    return true;
+}
+
+void set_feature_error(const std::string &token, std::string *error_message) {
+    if (error_message != nullptr) {
+        *error_message = "invalid font feature \"" + token + "\"; expected Skija syntax like tnum, +cv09, -dlig, wdth=100, or tnum[0:3]";
+    }
+}
+
+bool parse_feature_token(const std::string &token, SkShaper::Feature *feature, std::string *error_message) {
+    if (feature == nullptr || token.empty()) {
+        set_feature_error(token, error_message);
+        return false;
+    }
+
+    std::size_t pos = 0;
+    char sign = '\0';
+    if (token[pos] == '+' || token[pos] == '-') {
+        sign = token[pos];
+        ++pos;
+    }
+
+    if (pos + 4U > token.size()) {
+        set_feature_error(token, error_message);
+        return false;
+    }
+    const std::size_t tag_begin = pos;
+    for (std::size_t i = 0; i < 4U; ++i) {
+        if (!feature_tag_char(token[tag_begin + i])) {
+            set_feature_error(token, error_message);
+            return false;
+        }
+    }
+    const SkFourByteTag tag = SkSetFourByteTag(
+        token[tag_begin], token[tag_begin + 1U], token[tag_begin + 2U], token[tag_begin + 3U]);
+    pos += 4U;
+
+    std::size_t start = 0;
+    std::size_t end = std::numeric_limits<std::size_t>::max();
+    if (pos < token.size() && token[pos] == '[') {
+        ++pos;
+        const std::size_t start_begin = pos;
+        while (pos < token.size() && token[pos] != ':' && token[pos] != ']') {
+            ++pos;
+        }
+        if (pos >= token.size() || token[pos] != ':') {
+            set_feature_error(token, error_message);
+            return false;
+        }
+        if (pos > start_begin && !parse_unsigned_size(token, start_begin, pos, &start)) {
+            set_feature_error(token, error_message);
+            return false;
+        }
+        ++pos;
+        const std::size_t end_begin = pos;
+        while (pos < token.size() && token[pos] != ']') {
+            ++pos;
+        }
+        if (pos >= token.size() || token[pos] != ']') {
+            set_feature_error(token, error_message);
+            return false;
+        }
+        if (pos > end_begin && !parse_unsigned_size(token, end_begin, pos, &end)) {
+            set_feature_error(token, error_message);
+            return false;
+        }
+        ++pos;
+    }
+
+    std::uint32_t value = sign == '-' ? 0U : 1U;
+    if (pos < token.size() && token[pos] == '=') {
+        ++pos;
+        const std::size_t value_begin = pos;
+        if (value_begin >= token.size() || !parse_unsigned_u32(token, value_begin, token.size(), &value)) {
+            set_feature_error(token, error_message);
+            return false;
+        }
+        pos = token.size();
+    }
+
+    if (pos != token.size()) {
+        set_feature_error(token, error_message);
+        return false;
+    }
+
+    feature->tag = tag;
+    feature->value = value;
+    feature->start = start;
+    feature->end = end;
+    return true;
+}
+
+bool parse_features(const std::string &features_string, std::vector<SkShaper::Feature> *features, std::string *error_message) {
+    if (features == nullptr) {
+        return false;
+    }
+    features->clear();
+    if (features_string.empty()) {
+        return true;
+    }
+
+    std::istringstream input(features_string);
+    std::string token;
+    while (input >> token) {
+        SkShaper::Feature feature;
+        if (!parse_feature_token(token, &feature, error_message)) {
+            return false;
+        }
+        features->push_back(feature);
+    }
+    return true;
+}
+
+class TextLineRunHandler final : public SkShaper::RunHandler {
+public:
+    explicit TextLineRunHandler(const char *utf8_text) : utf8_text_(utf8_text) {}
+
+    sk_sp<SkTextBlob> make_blob() { return builder_.make(); }
+    float advance_width() const { return advance_width_; }
+
+    void beginLine() override {
+        current_position_ = SkPoint::Make(0.0f, 0.0f);
+        advance_width_ = 0.0f;
+    }
+
+    void runInfo(const RunInfo&) override {}
+    void commitRunInfo() override {}
+
+    Buffer runBuffer(const RunInfo &info) override {
+        const int glyph_count = info.glyphCount > static_cast<std::size_t>(std::numeric_limits<int>::max())
+            ? std::numeric_limits<int>::max()
+            : static_cast<int>(info.glyphCount);
+        const int utf8_range_size = info.utf8Range.size() > static_cast<std::size_t>(std::numeric_limits<int>::max())
+            ? std::numeric_limits<int>::max()
+            : static_cast<int>(info.utf8Range.size());
+
+        const auto &run_buffer = builder_.allocRunTextPos(info.fFont, glyph_count, utf8_range_size);
+        if (run_buffer.utf8text != nullptr && utf8_text_ != nullptr) {
+            std::memcpy(run_buffer.utf8text, utf8_text_ + info.utf8Range.begin(), static_cast<std::size_t>(utf8_range_size));
+        }
+        clusters_ = run_buffer.clusters;
+        glyph_count_ = glyph_count;
+        cluster_offset_ = info.utf8Range.begin();
+
+        return {run_buffer.glyphs, run_buffer.points(), nullptr, run_buffer.clusters, current_position_};
+    }
+
+    void commitRunBuffer(const RunInfo &info) override {
+        if (clusters_ != nullptr && cluster_offset_ <= std::numeric_limits<std::uint32_t>::max()) {
+            const std::uint32_t offset = static_cast<std::uint32_t>(cluster_offset_);
+            for (int i = 0; i < glyph_count_; ++i) {
+                if (clusters_[i] >= offset) {
+                    clusters_[i] -= offset;
+                }
+            }
+        }
+        current_position_ += info.fAdvance;
+        advance_width_ = std::max(advance_width_, current_position_.fX);
+    }
+
+    void commitLine() override {}
+
+private:
+    SkTextBlobBuilder builder_;
+    const char *utf8_text_ = nullptr;
+    SkPoint current_position_ = SkPoint::Make(0.0f, 0.0f);
+    float advance_width_ = 0.0f;
+    std::uint32_t *clusters_ = nullptr;
+    int glyph_count_ = 0;
+    std::size_t cluster_offset_ = 0;
+};
 
 
 }  // namespace
@@ -376,19 +593,25 @@ bool draw_image(GrayCanvas &canvas, const RasterImage &image, float src_x, float
     return true;
 }
 
-sk_sp<SkTypeface> select_typeface(GrayCanvas &canvas, const std::string &family, int weight) {
+sk_sp<SkTypeface> select_typeface(GrayCanvas &canvas, const FontOptions &options, std::string *selected_family_out) {
     TextState *text = canvas.text_state();
     if (text == nullptr || !text->font_mgr) {
         return nullptr;
     }
-    const std::string selected_family = family.empty() ? text->default_family : family;
-    sk_sp<SkTypeface> typeface(text->font_mgr->matchFamilyStyle(
-        selected_family.c_str(),
-        SkFontStyle(normalize_weight(weight), SkFontStyle::kNormal_Width, decode_slant(0))));
-    if (!typeface && !text->default_family.empty()) {
-        typeface = text->font_mgr->matchFamilyStyle(
-            text->default_family.c_str(),
-            SkFontStyle(normalize_weight(weight), SkFontStyle::kNormal_Width, decode_slant(0)));
+    const std::string requested_family = options.family.empty() ? text->default_family : options.family;
+    const SkFontStyle requested_style = font_style_from_options(options);
+    sk_sp<SkTypeface> typeface(text->font_mgr->matchFamilyStyle(requested_family.c_str(), requested_style));
+    if (typeface) {
+        if (selected_family_out != nullptr) {
+            *selected_family_out = requested_family;
+        }
+        return typeface;
+    }
+    if (!text->default_family.empty()) {
+        typeface = text->font_mgr->matchFamilyStyle(text->default_family.c_str(), requested_style);
+        if (typeface && selected_family_out != nullptr) {
+            *selected_family_out = text->default_family;
+        }
     }
     return typeface;
 }
@@ -399,47 +622,109 @@ SkFont make_font(sk_sp<SkTypeface> typeface, float size) {
     return font;
 }
 
-bool measure_text(GrayCanvas &canvas, const std::string &utf8, const std::string &family, float size, int weight, TextMetrics *metrics) {
-    if (metrics == nullptr || !positive(size)) {
-        return false;
-    }
-    sk_sp<SkTypeface> typeface = select_typeface(canvas, family, weight);
-    if (!typeface) {
-        return false;
-    }
-    SkFont font = make_font(typeface, size);
-    SkRect bounds;
-    metrics->width = font.measureText(utf8.data(), utf8.size(), SkTextEncoding::kUTF8, &bounds);
+float cap_height_for_font(const SkFont &font) {
     SkFontMetrics font_metrics;
     font.getMetrics(&font_metrics);
-    metrics->ascent = std::abs(font_metrics.fAscent);
-    metrics->descent = std::max(0.0f, font_metrics.fDescent);
-    metrics->height = metrics->ascent + metrics->descent + std::max(0.0f, font_metrics.fLeading);
-    metrics->baseline = metrics->ascent;
+    float cap_height = std::abs(font_metrics.fCapHeight);
+    if (!std::isfinite(cap_height) || cap_height <= 0.0f) {
+        cap_height = std::abs(font_metrics.fAscent);
+    }
+    return std::isfinite(cap_height) ? std::ceil(cap_height) : 0.0f;
+}
+
+bool shape_text(GrayCanvas &canvas, const std::string &utf8, const FontOptions &font_options, const std::string &features_string, TextLine *line, std::string *error_message) {
+    if (line == nullptr || !positive(font_options.size)) {
+        if (error_message != nullptr) {
+            *error_message = "shape-text requires a positive font size";
+        }
+        return false;
+    }
+
+    TextState *text = canvas.text_state();
+    if (text == nullptr || !text->font_mgr) {
+        if (error_message != nullptr) {
+            *error_message = "shape-text requires a canvas created with a valid font directory";
+        }
+        return false;
+    }
+
+    TextLine next;
+    next.utf8 = utf8;
+    next.font_options = font_options;
+    next.font_options.width = normalize_width(font_options.width);
+    next.font_options.weight = normalize_weight(font_options.weight);
+    next.features_string = features_string;
+    if (!parse_features(features_string, &next.features, error_message)) {
+        return false;
+    }
+
+    std::string selected_family;
+    sk_sp<SkTypeface> typeface = select_typeface(canvas, next.font_options, &selected_family);
+    if (!typeface) {
+        if (error_message != nullptr) {
+            *error_message = "shape-text could not resolve a typeface for family \"" + next.font_options.family + "\"";
+        }
+        return false;
+    }
+    next.font_options.family = selected_family;
+    SkFont font = make_font(typeface, next.font_options.size);
+
+    std::unique_ptr<SkShaper> shaper = SkShaper::Make(text->font_mgr);
+    if (!shaper) {
+        if (error_message != nullptr) {
+            *error_message = "shape-text could not create Skia text shaper";
+        }
+        return false;
+    }
+
+    const char *data = utf8.c_str();
+    const std::size_t size = utf8.size();
+    std::unique_ptr<SkShaper::LanguageRunIterator> language = SkShaper::MakeStdLanguageRunIterator(data, size);
+    std::unique_ptr<SkShaper::FontRunIterator> font_runs = SkShaper::MakeFontMgrRunIterator(
+        data,
+        size,
+        font,
+        text->font_mgr,
+        next.font_options.family.c_str(),
+        font_style_from_options(next.font_options),
+        language.get());
+    std::unique_ptr<SkShaper::BiDiRunIterator> bidi = SkShaper::MakeBiDiRunIterator(data, size, 0);
+    std::unique_ptr<SkShaper::ScriptRunIterator> script = SkShapers::HB::ScriptRunIterator(data, size);
+    if (!language || !font_runs || !bidi || !script) {
+        if (error_message != nullptr) {
+            *error_message = "shape-text could not create Skia text run iterators";
+        }
+        return false;
+    }
+
+    TextLineRunHandler handler(data);
+    const SkShaper::Feature *feature_data = next.features.empty() ? nullptr : next.features.data();
+    shaper->shape(
+        data,
+        size,
+        *font_runs,
+        *bidi,
+        *script,
+        *language,
+        feature_data,
+        next.features.size(),
+        std::numeric_limits<SkScalar>::infinity(),
+        &handler);
+
+    next.blob = handler.make_blob();
+    next.metrics.width = std::ceil(std::max(0.0f, handler.advance_width()));
+    next.metrics.height = cap_height_for_font(font);
+    *line = std::move(next);
     return true;
 }
 
-bool draw_text(GrayCanvas &canvas, const std::string &utf8, float x, float y, const std::string &family, float size, int weight, std::uint8_t gray) {
-    if (!finite_pair(x, y) || !positive(size)) {
+bool draw_text_line(GrayCanvas &canvas, const TextLine &line, float x, float y, std::uint8_t gray) {
+    if (!finite_pair(x, y) || !line.blob) {
         return false;
     }
-    sk_sp<SkTypeface> typeface = select_typeface(canvas, family, weight);
-    if (!typeface) {
-        return false;
-    }
-    SkFont font = make_font(typeface, size);
-    SkFontMetrics font_metrics;
-    font.getMetrics(&font_metrics);
     SkPaint paint = fill_paint(gray);
     paint.setAntiAlias(true);
-    canvas.sk_canvas().drawSimpleText(
-        utf8.data(),
-        utf8.size(),
-        SkTextEncoding::kUTF8,
-        x,
-        y + std::abs(font_metrics.fAscent),
-        font,
-        paint);
+    canvas.sk_canvas().drawTextBlob(line.blob, x, y + line.metrics.height, paint);
     return true;
 }
 

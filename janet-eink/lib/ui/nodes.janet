@@ -4,25 +4,19 @@
 # their own modules. This file owns only common node identity, defaults, component
 # boundary nodes, and parent/child bookkeeping.
 
-(defn props?
-  "Returns true when `x` can be used as a node props/fields map."
-  [x]
-  (or (table? x) (struct? x)))
+(import ./util :as util)
 
 (defn node?
   "Returns true when `x` is a UI node table."
   [x]
   (and (table? x) (= true (get x :ui/node?))))
 
-(defn- type-name
-  [x]
-  (string (type x)))
 
 (defn- own-get
   "Looks up `key` without following a table prototype chain."
   [dict key default]
   (var value default)
-  (when (props? dict)
+  (when (util/props? dict)
     (eachp [k v] dict
       (when (= k key)
         (set value v))))
@@ -38,17 +32,17 @@
     (nil? props)
     @{}
 
-    (props? props)
+    (util/props? props)
     props
 
     :else
-    (error (string (or who "node") ": expected props table or struct, got " (type-name props)))))
+    (error (string (or who "node") ": expected props table or struct, got " (util/type-name props)))))
 
 (defn ensure-node!
   "Raises a clear error unless `x` is a UI node; returns `x` otherwise."
   [x &opt who]
   (unless (node? x)
-    (error (string (or who "node") ": expected UI node, got " (type-name x))))
+    (error (string (or who "node") ": expected UI node, got " (util/type-name x))))
   x)
 
 (defn number-value?
@@ -75,7 +69,7 @@
 (defn size?
   "Returns true when `x` looks like a UI size/constraint map."
   [x]
-  (and (props? x)
+  (and (util/props? x)
        (number-value? (get x :w))
        (number-value? (get x :h))))
 
@@ -336,8 +330,8 @@
 (defn- put-fields!
   [node fields]
   (when fields
-    (unless (props? fields)
-      (error (string "make-node: expected fields table or struct, got " (type-name fields))))
+    (unless (util/props? fields)
+      (error (string "make-node: expected fields table or struct, got " (util/type-name fields))))
     (eachp [k v] fields
       (put node k v)))
   node)
@@ -349,7 +343,7 @@
   extends them. `fields` may override defaults or add concrete-widget state."
   [proto kind &opt props fields]
   (unless (table? proto)
-    (error (string "make-node: expected prototype table, got " (type-name proto))))
+    (error (string "make-node: expected prototype table, got " (util/type-name proto))))
   (let [node @{:ui/node? true
                :kind kind
                :element nil

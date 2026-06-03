@@ -7,6 +7,7 @@
 (import ./element :as elem)
 (import ./nodes :as nodes)
 (import ./label :as label)
+(import ./util :as util)
 
 (var make nil)
 (var make-impl nil)
@@ -60,9 +61,6 @@
     :else
     element))
 
-(defn- type-name
-  [x]
-  (string (type x)))
 
 (defn- element-args
   [element]
@@ -113,7 +111,7 @@
 (defn- invoke-head
   [head args element]
   (unless (function? head)
-    (error (string "element head must be callable, got " (type-name head)
+    (error (string "element head must be callable, got " (util/type-name head)
                    " in " element)))
   (head ;args))
 
@@ -177,18 +175,27 @@
         (set found? true))))
   found?)
 
+(defn- retained-field?
+  [fresh key]
+  (var found? false)
+  (each retained (get fresh :retain-fields @[])
+    (when (= retained key)
+      (set found? true)))
+  found?)
+
 (defn- copy-node-fields!
   [old-node fresh element]
   (let [parent (get old-node :parent nil)
         bounds (get old-node :bounds nil)
         child (get old-node :child nil)
         children (get old-node :children @[])]
-    # Remove stale own fields while preserving retained topology fields.
+    # Remove stale own fields while preserving retained topology/cache fields.
     (eachp [k _v] old-node
       (unless (or (= k :parent)
                   (= k :bounds)
                   (= k :child)
-                  (= k :children))
+                  (= k :children)
+                  (retained-field? fresh k))
         (unless (own-key? fresh k)
           (put old-node k nil))))
     (table/setproto old-node (table/getproto fresh))
@@ -196,7 +203,8 @@
       (unless (or (= k :parent)
                   (= k :bounds)
                   (= k :child)
-                  (= k :children))
+                  (= k :children)
+                  (retained-field? fresh k))
         (put old-node k v)))
     (put old-node :parent parent)
     (put old-node :bounds bounds)
@@ -255,7 +263,7 @@
 
 (defn- component-descriptor?
   [x]
-  (and (elem/props? x) (function? (get x :render))))
+  (and (util/props? x) (function? (get x :render))))
 
 (defn- component-render-result
   [head args initial-result]
@@ -339,7 +347,7 @@
         result (get invocation :result)]
     (unless (and (nodes/node? result) (builtin-call-result? head result))
       (error (string "expected built-in constructor to return a UI node for " element
-                     ", got " (type-name result))))
+                     ", got " (util/type-name result))))
     result))
 
 (defn- reconcile-built-in-node!
@@ -406,7 +414,7 @@
 
         (not (tuple? converted))
         (error (string "make-impl: expected tuple element markup, node, string, nil, or false; got "
-                       (type-name converted)))
+                       (util/type-name converted)))
 
         :else
         (make-from-invocation start-node ctx (invoke-element converted))))))

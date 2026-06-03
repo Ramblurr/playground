@@ -8,6 +8,10 @@
 
 #include "core/SkBitmap.h"
 
+#include "core/SkFontStyle.h"
+#include "core/SkRefCnt.h"
+#include "core/SkTextBlob.h"
+#include "modules/skshaper/include/SkShaper.h"
 class SkCanvas;
 
 namespace otter {
@@ -25,12 +29,27 @@ struct GrayStats {
     std::uint64_t checksum = 0;
 };
 
-struct TextMetrics {
+struct FontOptions {
+    std::string family;
+    float size = 16.0f;
+    int weight = 400;
+    int width = SkFontStyle::kNormal_Width;
+    int slant = 0;
+};
+
+struct TextLineMetrics {
     float width = 0.0f;
     float height = 0.0f;
-    float ascent = 0.0f;
-    float descent = 0.0f;
-    float baseline = 0.0f;
+};
+
+class TextLine {
+public:
+    std::string utf8;
+    FontOptions font_options;
+    std::string features_string;
+    std::vector<SkShaper::Feature> features;
+    sk_sp<SkTextBlob> blob;
+    TextLineMetrics metrics;
 };
 
 struct TextState;
@@ -96,8 +115,8 @@ bool scale(GrayCanvas &canvas, float sx, float sy);
 bool clip_rect(GrayCanvas &canvas, float x, float y, float width, float height);
 bool draw_line(GrayCanvas &canvas, float x1, float y1, float x2, float y2, std::uint8_t gray, float stroke_width);
 bool draw_path(GrayCanvas &canvas, const std::vector<float> &coords, bool closed, std::uint8_t gray);
-bool measure_text(GrayCanvas &canvas, const std::string &utf8, const std::string &family, float size, int weight, TextMetrics *metrics);
-bool draw_text(GrayCanvas &canvas, const std::string &utf8, float x, float y, const std::string &family, float size, int weight, std::uint8_t gray);
+bool shape_text(GrayCanvas &canvas, const std::string &utf8, const FontOptions &font_options, const std::string &features_string, TextLine *line, std::string *error_message);
+bool draw_text_line(GrayCanvas &canvas, const TextLine &line, float x, float y, std::uint8_t gray);
 bool draw_image(GrayCanvas &canvas, const RasterImage &image, float src_x, float src_y, float src_width, float src_height, float dst_x, float dst_y, float dst_width, float dst_height, float alpha);
 std::uint8_t sample_gray(const GrayCanvas &canvas, int x, int y);
 GrayStats compute_stats(const GrayCanvas &canvas);

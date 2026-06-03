@@ -3,6 +3,7 @@
 #include <new>
 #include <string>
 #include <vector>
+#include <utility>
 
 namespace otter::binding {
 namespace {
@@ -39,8 +40,28 @@ static const JanetAbstractType image_type = {
     JANET_ATEND_PUT
 };
 
+static int text_line_gc(void *p, size_t s) {
+    (void) s;
+    auto *line = static_cast<otter::TextLine *>(p);
+    line->~TextLine();
+    return 0;
+}
+
+static const JanetAbstractType text_line_type = {
+    "otter/skia-text-line",
+    text_line_gc,
+    nullptr,
+    nullptr,
+    nullptr,
+    JANET_ATEND_PUT
+};
+
 static otter::RasterImage *get_image(Janet *argv, int32_t n) {
     return static_cast<otter::RasterImage *>(janet_getabstract(argv, n, &image_type));
+}
+
+static otter::TextLine *get_text_line(Janet *argv, int32_t n) {
+    return static_cast<otter::TextLine *>(janet_getabstract(argv, n, &text_line_type));
 }
 
 static Janet cfun_create(int32_t argc, Janet *argv) {
@@ -267,13 +288,10 @@ static Janet cfun_stats(int32_t argc, Janet *argv) {
     return make_stats_table(otter::compute_stats(*canvas));
 }
 
-Janet make_text_metrics_table(const otter::TextMetrics &metrics) {
-    JanetTable *table = janet_table(5);
+Janet make_text_line_metrics_table(const otter::TextLineMetrics &metrics) {
+    JanetTable *table = janet_table(2);
     janet_table_put(table, janet_ckeywordv("width"), janet_wrap_number(metrics.width));
     janet_table_put(table, janet_ckeywordv("height"), janet_wrap_number(metrics.height));
-    janet_table_put(table, janet_ckeywordv("ascent"), janet_wrap_number(metrics.ascent));
-    janet_table_put(table, janet_ckeywordv("descent"), janet_wrap_number(metrics.descent));
-    janet_table_put(table, janet_ckeywordv("baseline"), janet_wrap_number(metrics.baseline));
     return janet_wrap_table(table);
 }
 
@@ -282,31 +300,42 @@ std::string get_text_string(Janet *argv, int32_t n) {
     return std::string(reinterpret_cast<const char *>(view.bytes), static_cast<std::size_t>(view.len));
 }
 
-static Janet cfun_measure_text(int32_t argc, Janet *argv) {
-    janet_fixarity(argc, 5);
-    otter::GrayCanvas *canvas = get_canvas(argv, 0);
-    const std::string text = get_text_string(argv, 1);
-    const char *family = janet_getcstring(argv, 2);
-    const float size = static_cast<float>(janet_getnumber(argv, 3));
-    const int weight = janet_getinteger(argv, 4);
-    otter::TextMetrics metrics;
-    if (!otter::measure_text(*canvas, text, family != nullptr ? family : "", size, weight, &metrics)) {
-        janet_panic("measure-text requires a canvas created with a valid font directory and positive text size");
-    }
-    return make_text_metrics_table(metrics);
-}
-
-static Janet cfun_draw_text(int32_t argc, Janet *argv) {
+static Janet cfun_shape_text(int32_t argc, Janet *argv) {
     janet_fixarity(argc, 8);
     otter::GrayCanvas *canvas = get_canvas(argv, 0);
     const std::string text = get_text_string(argv, 1);
+    otter::FontOptions options;
+    const char *family = janet_getcstring(argv, 2);
+    options.family = family != nullptr ? family : "";
+    options.size = static_cast<float>(janet_getnumber(argv, 3));
+    options.weight = janet_getinteger(argv, 4);
+    options.width = janet_getinteger(argv, 5);
+    options.slant = janet_getinteger(argv, 6);
+    const char *features = janet_getcstring(argv, 7);
+    otter::TextLine shaped;
+    std::string error_message;
+    if (!otter::shape_text(*canvas, text, options, features != nullptr ? features : "", &shaped, &error_message)) {
+        janet_panic(error_message.empty() ? "shape-text failed" : error_message.c_str());
+    }
+    void *memory = janet_abstract(&text_line_type, sizeof(otter::TextLine));
+    auto *line = new (memory) otter::TextLine(std::move(shaped));
+    return janet_wrap_abstract(line);
+}
+
+static Janet cfun_text_line_metrics(int32_t argc, Janet *argv) {
+    janet_fixarity(argc, 1);
+    otter::TextLine *line = get_text_line(argv, 0);
+    return make_text_line_metrics_table(line->metrics);
+}
+
+static Janet cfun_draw_text_line(int32_t argc, Janet *argv) {
+    janet_fixarity(argc, 5);
+    otter::GrayCanvas *canvas = get_canvas(argv, 0);
+    otter::TextLine *line = get_text_line(argv, 1);
     const float x = static_cast<float>(janet_getnumber(argv, 2));
     const float y = static_cast<float>(janet_getnumber(argv, 3));
-    const char *family = janet_getcstring(argv, 4);
-    const float size = static_cast<float>(janet_getnumber(argv, 5));
-    const int weight = janet_getinteger(argv, 6);
-    if (!otter::draw_text(*canvas, text, x, y, family != nullptr ? family : "", size, weight, get_gray(argv, 7))) {
-        janet_panic("draw-text requires finite coordinates, a canvas created with a valid font directory, and positive text size");
+    if (!otter::draw_text_line(*canvas, *line, x, y, get_gray(argv, 4))) {
+        janet_panic("draw-text-line requires finite coordinates and a non-empty shaped text line");
     }
     return argv[0];
 }
@@ -387,12 +416,16 @@ static const JanetReg common_cfuns[] = {
         "(skia/draw-image canvas image src-x src-y src-width src-height dst-x dst-y dst-width dst-height alpha)\n\nDraw a source rectangle from an image into a canvas."
     },
     {
-        "measure-text", cfun_measure_text,
-        "(skia/measure-text canvas text family size weight)\n\nMeasure a single-line label."
+        "shape-text", cfun_shape_text,
+        "(skia/shape-text canvas text family size weight width slant features)\n\nShape a single text line and return a native text-line handle."
     },
     {
-        "draw-text", cfun_draw_text,
-        "(skia/draw-text canvas text x y family size weight gray)\n\nDraw a single-line label."
+        "text-line-metrics", cfun_text_line_metrics,
+        "(skia/text-line-metrics text-line)\n\nReturn shaped text-line cap-height metrics."
+    },
+    {
+        "draw-text-line", cfun_draw_text_line,
+        "(skia/draw-text-line canvas text-line x y gray)\n\nDraw a shaped text line."
     },
     {
         "sample-gray", cfun_sample_gray,

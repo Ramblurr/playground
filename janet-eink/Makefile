@@ -12,6 +12,7 @@ OPT_CXXFLAGS ?= -O2 -g
 PC_CFLAGS = $(shell $(PKG_CONFIG) --cflags $(PC_MODULES))
 PC_LIBS = $(shell $(PKG_CONFIG) --libs $(PC_MODULES))
 PC_RPATHS = $(patsubst -L%,-Wl$(comma)-rpath$(comma)%,$(shell $(PKG_CONFIG) --libs-only-L $(PC_MODULES)))
+SHAPING_LIBS := -lskshaper -lskunicode_icu -lskunicode_core
 
 .PHONY: native test run clean
 
@@ -22,7 +23,7 @@ $(NATIVE_MODULE): src/janet_otter_sdl.cc src/janet_skia_common.cc src/janet_skia
 	$(CXX) $(WARN_CXXFLAGS) $(OPT_CXXFLAGS) $(CPPFLAGS) $(CXXFLAGS) $(PC_CFLAGS) \
 		-shared -o $@ \
 		src/janet_otter_sdl.cc src/janet_skia_common.cc src/otter_drawing_backend.cc \
-		$(LDFLAGS) $(PC_RPATHS) $(PC_LIBS)
+		$(LDFLAGS) $(PC_RPATHS) $(PC_LIBS) $(SHAPING_LIBS)
 
 test: $(NATIVE_MODULE)
 	OTTER_SKIA_NATIVE="$(abspath $(NATIVE_MODULE))" jeep test

@@ -55,6 +55,7 @@
   [opts]
   (or (get opts :font-dir) (default-font-dir)))
 
+
 (defn- family-name
   [value]
   (case value
@@ -72,40 +73,55 @@
     nil 400
     value))
 
-(defn- text-size-value
+(defn- font-size-value
   [opts]
-  (get opts :size 16))
+  (get opts :font-size 16))
 
-(defn- gray-value
-  [value]
+(defn- font-weight-value
+  [opts]
+  (weight-value (get opts :font-weight nil)))
+
+(defn- font-width-value
+  [opts]
+  (case (get opts :font-width :normal)
+    :ultra-condensed 1
+    :extra-condensed 2
+    :condensed 3
+    :semi-condensed 4
+    :normal 5
+    :semi-expanded 6
+    :expanded 7
+    :extra-expanded 8
+    :ultra-expanded 9
+    nil 5
+    (get opts :font-width)))
+
+(defn- font-slant-value
+  [opts]
+  (case (get opts :font-slant :upright)
+    :upright 0
+    :italic 1
+    :oblique 2
+    nil 0
+    (get opts :font-slant)))
+
+(defn- font-features-string
+  [opts]
+  (def value (get opts :font-features nil))
   (cond
-    (nil? value) black
-    (= :number (type value)) value
-    (or (= :table (type value)) (= :struct (type value))) (get value :gray black)
-    :else (error (string "expected gray number or paint table, got " (type value)))))
+    (nil? value) ""
+    (string? value) value
+    (or (= :array (type value)) (= :tuple (type value)))
+    (do
+      (def parts @[])
+      (each feature value
+        (unless (string? feature)
+          (error (string "font-features expects strings, got " (type feature))))
+        (array/push parts feature))
+      (string/join parts " "))
+    :else
+    (error (string "font-features expects a string or array/tuple of strings, got " (type value)))))
 
-
-(defn- paint-key
-  [value key default]
-  (if (or (= :table (type value)) (= :struct (type value)))
-    (get value key default)
-    default))
-
-(defn- stroke-width-value
-  [value]
-  (paint-key value :stroke-width 1))
-(defn paint
-  [&opt options]
-  (def opts (or options @{}))
-  @{:gray (gray-value (get opts :gray black))
-    :alpha (get opts :alpha 1.0)
-    :style (get opts :style :fill)
-    :stroke-width (get opts :stroke-width 1)
-    :anti-alias? (get opts :anti-alias? false)})
-
-(defn with-paint
-  [base overrides]
-  (merge (paint base) overrides))
 
 (defn screen-size
   []
@@ -135,8 +151,8 @@
     (error "skia/create expects zero args, width/height, or an options table")))
 
 (defn clear
-  [canvas value]
-  ((native-fn 'clear) canvas (gray-value value)))
+  [canvas {:gray gray}]
+  ((native-fn 'clear) canvas gray))
 
 (defn stats
   [canvas]
@@ -151,12 +167,12 @@
   (get (stats canvas) :height))
 
 (defn draw-rect
-  [canvas x y w h &opt p]
-  ((native-fn 'draw-rect) canvas x y w h (gray-value p)))
+  [canvas x y w h {:gray gray}]
+  ((native-fn 'draw-rect) canvas x y w h gray))
 
 (defn draw-rounded-rect
-  [canvas x y w h radius &opt p]
-  ((native-fn 'draw-rounded-rect) canvas x y w h radius (gray-value p)))
+  [canvas x y w h radius {:gray gray}]
+  ((native-fn 'draw-rounded-rect) canvas x y w h radius gray))
 
 (defn- point-pair?
   [point]
@@ -178,47 +194,45 @@
   flat)
 
 (defn draw-line
-  [canvas x1 y1 x2 y2 &opt p]
-  ((native-fn 'draw-line) canvas x1 y1 x2 y2 (gray-value p) (stroke-width-value p)))
+  [canvas x1 y1 x2 y2 {:gray gray :stroke-width stroke-width}]
+  ((native-fn 'draw-line) canvas x1 y1 x2 y2 gray stroke-width))
 
 (defn draw-path
-  [canvas points &opt p]
-  ((native-fn 'draw-path) canvas (flatten-points points) true (gray-value p)))
+  [canvas points {:gray gray}]
+  ((native-fn 'draw-path) canvas (flatten-points points) true gray))
 
 (defn draw-polygon
-  [canvas points &opt p]
-  (draw-path canvas points p))
+  [canvas points opts]
+  (draw-path canvas points opts))
 
 (defn draw-triangle
-  [canvas x1 y1 x2 y2 x3 y3 &opt p]
-  ((native-fn 'draw-triangle) canvas x1 y1 x2 y2 x3 y3 (gray-value p)))
+  [canvas x1 y1 x2 y2 x3 y3 {:gray gray}]
+  ((native-fn 'draw-triangle) canvas x1 y1 x2 y2 x3 y3 gray))
 
 (defn draw-circle
-  [canvas cx cy radius &opt p]
-  ((native-fn 'draw-circle) canvas cx cy radius (gray-value p)))
+  [canvas cx cy radius {:gray gray}]
+  ((native-fn 'draw-circle) canvas cx cy radius gray))
 
-(defn measure-text
+(defn shape-text
   [canvas text &opt opts]
   (def options (or opts @{}))
-  ((native-fn 'measure-text)
+  ((native-fn 'shape-text)
    canvas
    text
-   (family-name (or (get options :family) (get options :font)))
-   (text-size-value options)
-   (weight-value (get options :weight))))
+   (family-name (get options :font-family nil))
+   (font-size-value options)
+   (font-weight-value options)
+   (font-width-value options)
+   (font-slant-value options)
+   (font-features-string options)))
 
-(defn draw-text
-  [canvas text x y &opt opts]
-  (def options (or opts @{}))
-  ((native-fn 'draw-text)
-   canvas
-   text
-   x
-   y
-   (family-name (or (get options :family) (get options :font)))
-   (text-size-value options)
-   (weight-value (get options :weight))
-   (gray-value options)))
+(defn text-line-metrics
+  [text-line]
+  ((native-fn 'text-line-metrics) text-line))
+
+(defn draw-text-line
+  [canvas text-line x y {:gray gray}]
+  ((native-fn 'draw-text-line) canvas text-line x y gray))
 
 (defn load-png
   [path]

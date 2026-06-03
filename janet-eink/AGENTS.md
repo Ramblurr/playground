@@ -1,4 +1,8 @@
-# Janet e-ink agent notes
+# janet-eink aka Otter
+
+
+Otter is (will be) an open-source e-reader application for embedded linux devices with e-ink screens. Target hardware: kobo, pocketbook devices, and linux desktop (via SDL2).
+
 
 ## Goal
 

@@ -35,6 +35,9 @@
           :draw-rounded-rect (native-export? native-fn 'draw-rounded-rect)
           :draw-triangle (native-export? native-fn 'draw-triangle)
           :draw-circle (native-export? native-fn 'draw-circle)
+          :shape-text (native-export? native-fn 'shape-text)
+          :text-line-metrics (native-export? native-fn 'text-line-metrics)
+          :draw-text-line (native-export? native-fn 'draw-text-line)
           :sample-gray (native-export? native-fn 'sample-gray)
           :stats (native-export? native-fn 'stats)
           :present (native-export? native-fn 'present)
@@ -45,6 +48,9 @@
                    :draw-rounded-rect true
                    :draw-triangle true
                    :draw-circle true
+                   :shape-text true
+                   :text-line-metrics true
+                   :draw-text-line true
                    :sample-gray true
                    :stats true
                    :present true

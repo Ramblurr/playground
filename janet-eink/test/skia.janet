@@ -8,8 +8,8 @@
 
 (deftest public-skia-module-renders-basic-gray8-canvas
   (def frame (skia/create 64 64))
-  (skia/clear frame skia/white)
-  (skia/draw-rect frame 4 4 20 18 skia/dark-gray)
+  (skia/clear frame {:gray skia/white})
+  (skia/draw-rect frame 4 4 20 18 {:gray skia/dark-gray})
   (def stats (skia/stats frame))
   (def observed
     @{:background (skia/sample-gray frame 0 0)
@@ -53,14 +53,14 @@
 
 (deftest clipping-transform-and-scoped-restore-constrain-later-draws
   (def frame (skia/create 48 48))
-  (skia/clear frame skia/white)
+  (skia/clear frame {:gray skia/white})
   (skia/with-clip-rect frame 8 8 8 8
-    (skia/draw-rect frame 0 0 48 48 skia/black))
+    (skia/draw-rect frame 0 0 48 48 {:gray skia/black}))
   (skia/with-save frame
     (skia/translate frame 24 0)
     (skia/scale frame 2 2)
-    (skia/draw-rect frame 1 1 3 3 skia/dark-gray))
-  (skia/draw-rect frame 0 0 4 4 160)
+    (skia/draw-rect frame 1 1 3 3 {:gray skia/dark-gray}))
+  (skia/draw-rect frame 0 0 4 4 {:gray 160})
   (def observed
     @{:clip-inside (skia/sample-gray frame 10 10)
       :clip-outside (skia/sample-gray frame 2 10)
@@ -77,12 +77,12 @@
 
 (deftest scoped-clip-restores-even-when-body-errors
   (def frame (skia/create 24 24))
-  (skia/clear frame skia/white)
+  (skia/clear frame {:gray skia/white})
   (def result
     (protect
       (skia/with-clip-rect frame 0 0 4 4
         (error "boom"))))
-  (skia/draw-rect frame 8 8 4 4 skia/dark-gray)
+  (skia/draw-rect frame 8 8 4 4 {:gray skia/dark-gray})
   (def observed
     @{:body-failed? (not (get result 0))
       :after-error-draw (skia/sample-gray frame 9 9)})
@@ -93,11 +93,11 @@
 
 (deftest lines-paths-polygons-and-triangles-render-through-public-api
   (def frame (skia/create 40 40))
-  (skia/clear frame skia/white)
+  (skia/clear frame {:gray skia/white})
   (skia/draw-line frame 2 2 20 2 {:gray 32 :stroke-width 1})
-  (skia/draw-polygon frame @[[8 8] [18 8] [8 18]] skia/dark-gray)
-  (skia/draw-path frame @[[22 22] [32 22] [32 32] [22 32]] 160)
-  (skia/draw-triangle frame 4 28 14 28 9 20 skia/black)
+  (skia/draw-polygon frame @[[8 8] [18 8] [8 18]] {:gray skia/dark-gray})
+  (skia/draw-path frame @[[22 22] [32 22] [32 32] [22 32]] {:gray 160})
+  (skia/draw-triangle frame 4 28 14 28 9 20 {:gray skia/black})
   (def observed
     @{:line (skia/sample-gray frame 10 2)
       :polygon (skia/sample-gray frame 10 10)
@@ -112,6 +112,24 @@
              observed)
       "line, polygon, path, and triangle drawing mutate expected gray8 pixels"))
 
+(deftest drawing-primitives-accept-only-canonical-options-maps
+  (def frame (skia/create 32 32))
+  (def observed
+    @{:clear-shorthand-rejected? (not (get (protect (skia/clear frame skia/white)) 0))
+      :rect-shorthand-rejected? (not (get (protect (skia/draw-rect frame 0 0 4 4 skia/black)) 0))
+      :line-shorthand-rejected? (not (get (protect (skia/draw-line frame 0 0 4 4 skia/black)) 0))
+      :clear-opts-accepted? (get (protect (skia/clear frame {:gray skia/white})) 0)
+      :rect-opts-accepted? (get (protect (skia/draw-rect frame 0 0 4 4 {:gray skia/black})) 0)
+      :line-opts-accepted? (get (protect (skia/draw-line frame 0 0 4 4 {:gray skia/black :stroke-width 1})) 0)})
+  (is (deep= @{:clear-shorthand-rejected? true
+               :rect-shorthand-rejected? true
+               :line-shorthand-rejected? true
+               :clear-opts-accepted? true
+               :rect-opts-accepted? true
+               :line-opts-accepted? true}
+             observed)
+      "drawing primitives accept one canonical options-map call shape"))
+
 (deftest deterministic-noto-font-dir-is-available
   (def dir (font-dir))
   (def observed
@@ -124,35 +142,77 @@
              observed)
       "tests use deterministic Nix-sourced Noto Sans and Noto Serif files"))
 
-(deftest measure-and-draw-single-line-labels-with-noto-families
+(deftest shaped-text-lines-measure-and-draw-with-cap-height-metrics
   (def dir (font-dir))
   (def frame (skia/create {:width 320 :height 120 :font-dir dir}))
-  (skia/clear frame skia/white)
-  (def sans (skia/measure-text frame "Hello" {:font :sans :size 24}))
-  (def serif (skia/measure-text frame "Hello" {:font :serif :size 24}))
+  (skia/clear frame {:gray skia/white})
+  (def line (skia/shape-text frame "Hello" {:font-family "Noto Sans"
+                                        :font-size 24
+                                        :font-weight 400}))
+  (def metrics (skia/text-line-metrics line))
   (def before (skia/stats frame))
-  (skia/draw-text frame "Hello" 10 10 {:font :sans :size 24 :gray skia/black})
-  (skia/draw-text frame "Café — Ω" 10 50 {:font :serif :size 24 :gray skia/dark-gray})
+  (skia/draw-text-line frame line 10 10 {:gray skia/black})
   (def after (skia/stats frame))
   (def observed
-    @{:sans-positive? (and (> (get sans :width) 0)
-                           (> (get sans :height) 0)
-                           (> (get sans :baseline) 0))
-      :serif-positive? (and (> (get serif :width) 0)
-                            (> (get serif :height) 0)
-                            (> (get serif :baseline) 0))
+    @{:metrics-positive? (and (> (get metrics :width) 0)
+                              (> (get metrics :height) 0))
+      :no-baseline-diagnostics? (and (nil? (get metrics :ascent nil))
+                                     (nil? (get metrics :descent nil))
+                                     (nil? (get metrics :baseline nil)))
       :draw-mutated? (> (get after :non-white-pixels)
                         (get before :non-white-pixels))})
-  (is (deep= @{:sans-positive? true
-               :serif-positive? true
+  (is (deep= @{:metrics-positive? true
+               :no-baseline-diagnostics? true
                :draw-mutated? true}
              observed)
-      "single-line text measurement and drawing work with Noto Sans and Serif"))
+      "shaped text lines expose cap-height metrics and draw into a gray8 canvas"))
+
+(deftest draw-text-line-accepts-one-canonical-options-map
+  (def dir (font-dir))
+  (def frame (skia/create {:width 320 :height 120 :font-dir dir}))
+  (def line (skia/shape-text frame "Hello" {:font-family "Noto Sans"
+                                        :font-size 24}))
+  (def shorthand-result (protect (skia/draw-text-line frame line 10 10 skia/black)))
+  (def opts-result (protect (skia/draw-text-line frame line 10 10 {:gray skia/black})))
+  (def old-paint-result (protect (skia/draw-text-line frame line 10 10 {:paint skia/black})))
+  (def observed
+    @{:shorthand-rejected? (not (get shorthand-result 0))
+      :old-paint-key-rejected? (not (get old-paint-result 0))
+      :opts-accepted? (get opts-result 0)})
+  (is (deep= @{:shorthand-rejected? true
+               :old-paint-key-rejected? true
+               :opts-accepted? true}
+             observed)
+      "draw-text-line has one canonical options-map call shape"))
+
+(deftest font-feature-strings-follow-skija-syntax
+  (def dir (font-dir))
+  (def frame (skia/create {:width 320 :height 120 :font-dir dir}))
+  (def accepted @[])
+  (each feature ["tnum" "+cv09" "-dlig" "wdth=100" "tnum[0:3]"]
+    (array/push accepted
+                (get (protect (skia/shape-text frame "12345" {:font-family "Noto Sans"
+                                                               :font-size 24
+                                                               :font-features [feature]}))
+                     0)))
+  (def invalid
+    (protect (skia/shape-text frame "12345" {:font-family "Noto Sans"
+                                             :font-size 24
+                                             :font-features ["bad"]})))
+  (def observed
+    @{:accepted accepted
+      :invalid-failed? (not (get invalid 0))
+      :invalid-message-hints-syntax? (not (nil? (string/find "font feature" (string (get invalid 1)))))} )
+  (is (deep= @{:accepted @[true true true true true]
+               :invalid-failed? true
+               :invalid-message-hints-syntax? true}
+             observed)
+      "font feature strings accept Skija examples and reject invalid syntax"))
 
 (deftest load-png-exposes-image-size-and-draw-image-mutates-canvas
   (def image (skia/load-png "test/fixtures/checker.png"))
   (def frame (skia/create 24 24))
-  (skia/clear frame skia/white)
+  (skia/clear frame {:gray skia/white})
   (skia/draw-image frame image 4 4)
   (def stats (skia/stats frame))
   (def observed
@@ -172,7 +232,7 @@
 (deftest draw-image-supports-crop-and-destination-rect
   (def image (skia/load-png "test/fixtures/checker.png"))
   (def frame (skia/create 24 24))
-  (skia/clear frame skia/white)
+  (skia/clear frame {:gray skia/white})
   (skia/draw-image frame image 10 10 {:src {:x 0 :y 0 :w 1 :h 1}
                                       :w 6 :h 6})
   (is (= 0 (skia/sample-gray frame 10 10))
