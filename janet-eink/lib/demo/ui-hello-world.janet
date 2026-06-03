@@ -4,10 +4,13 @@
 (import ../ui :as ui)
 (import ../ui/nodes :as nodes)
 
-(def darkest "20")
-(def darker "40")
-(def dark "60")
-(def mid "80")
+# Keep flat UI grays aligned to the 16-level e-ink palette.
+# Single-nibble paint strings expand to byte values like "2" -> 0x22;
+# this avoids arbitrary 8-bit grays that the panel would quantize anyway.
+(def darkest "2")
+(def darker "4")
+(def dark "6")
+(def mid "8")
 (def light "C")
 
 (defn- dirname
@@ -45,7 +48,7 @@
 
 (defn grow-demo
   []
-  [ui/rect {:paint [{:fill "F"} {:stroke "80" :width 1}] :radius [16 10]}
+  [ui/rect {:paint [{:fill "F"} {:stroke "8" :width 1}] :radius [16 10]}
    [ui/padding {:padding 16}
     [ui/column {:gap 10}
      [ui/label {:font-family "Noto Sans"
@@ -67,12 +70,12 @@
   [ui/with-context {:font-family "Noto Sans"
                     :font-size 20
                     :paint "0"}
-   [ui/rect {:paint [{:fill "F"} {:stroke "80" :width 1}] :radius [16 10]}
+   [ui/rect {:paint [{:fill "F"} {:stroke "8" :width 1}] :radius [16 10]}
     [ui/padding {:padding 16}
      [ui/row {:gap 16 :align :center}
       [ui/column {:gap 4}
        [ui/label "size + clip + translate + image"]
-       [ui/label {:font-size 16 :paint "60"}
+       [ui/label {:font-size 16 :paint "6"}
         "context supplies label defaults"]]
       [ui/size {:width 120 :height 72}
        [ui/clip
