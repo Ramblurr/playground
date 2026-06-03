@@ -20,6 +20,8 @@
       koboInstallPath = "/mnt/onboard/janet-eink-demo/janet";
 
       jeep = pkgs.callPackage ./nix/pkgs/jeep/package.nix { };
+      jfmt = pkgs.callPackage ./nix/pkgs/jfmt/package.nix { };
+
 
       otterFonts = pkgs.callPackage ./nix/pkgs/otter-fonts/package.nix {
         inherit (pkgs) noto-fonts;
@@ -65,6 +67,7 @@
       packages.${system} = {
         default = armv7lPkgs.janet;
         jeep = jeep;
+        jfmt = jfmt;
         janet-otter-sdl = janetOtterSdl;
         otter-fonts = otterFonts;
         janet-armv7l = armv7lPkgs.janet;
@@ -104,6 +107,7 @@
           pkgs.SDL2
           pkgs.skia
           jeep
+          jfmt
           janetOtterSdl
           otterFonts
         ];
@@ -141,6 +145,7 @@
           echo "Janet dev shell"
           echo "  janet: $(command -v janet)"
           echo "  jeep:  $(command -v jeep)"
+          echo "  jfmt:  $(command -v jfmt)"
           echo "  local Janet tree: $JANET_EINK_JANET_TREE"
           if command -v janet-netrepl >/dev/null 2>&1; then
             echo "  janet-netrepl: $(command -v janet-netrepl)"
