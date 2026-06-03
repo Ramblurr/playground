@@ -24,9 +24,9 @@ Otter is (will be) an open-source e-reader application for embedded linux device
 
 - `bin/otter` — Janet entrypoint; loads source modules or installed bundle modules.
 - `lib/skia.janet` — the single public Janet drawing API for canvases, primitives, text, PNG images, and presentation delegation.
-- `lib/platform.janet` — chooses `:desktop-sdl` on Linux dev hosts and `:kobo-fbink` on Kobo.
-- `lib/platform/desktop.janet` — narrow SDL provider: native loading, screen size, presentation, and desktop helpers.
-- `lib/platform/kobo.janet` — narrow Kobo provider: native loading, framebuffer size, and FBInk presentation.
+- `lib/device.janet` — chooses the process-lifetime `:desktop-sdl` or `:kobo-fbink` device handle and exposes device method dispatch.
+- `lib/device/desktop.janet` — narrow SDL device: native loading, screen size, presentation, input, and desktop helpers.
+- `lib/device/kobo.janet` — narrow Kobo device: native loading, framebuffer size, input, and FBInk presentation.
 - `lib/demo/shapes.janet` — Janet-owned grayscale geometry demo using `lib/skia.janet`.
 - `src/otter_drawing_backend.*` — shared gray8 Skia drawing backend for rectangles, rounded rectangles, paths, images, text, stats, and RGBA conversion.
 - `src/janet_otter_sdl.cc` — SDL desktop presenter; registers common drawing bindings and presents a portrait `1264x1680` Kobo canvas at half size (`632x840`) centered in the compositor window, clipping when needed.

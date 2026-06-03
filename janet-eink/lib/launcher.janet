@@ -1,5 +1,6 @@
 (import ./demo/ui-hello-world :as hello)
 (import ./input :as input)
+(import ./device :as device)
 
 (defn- usage-input-dump
   []
@@ -19,10 +20,10 @@
 (defn- parse-input-dump
   [args]
   (let [opts @{:normalized? false
-              :limit 200
-              :timeout-ms 1000
-              :idle-limit 10
-              :grab? false}]
+               :limit 200
+               :timeout-ms 1000
+               :idle-limit 10
+               :grab? false}]
     (var i 1)
     (while (< i (length args))
       (let [arg (get args i)]
@@ -74,15 +75,26 @@
         (++ i)))
     opts))
 
-(defn run
-  [& args]
+(defn- run-with-device
+  [dev args]
   (case (get args 0 nil)
     "input-dump"
     (let [opts (parse-input-dump args)]
       (if (get opts :help? false)
         (do
           (usage-input-dump)
-          (os/exit 0))
-        (os/exit (input/dump opts))))
+          0)
+        (input/dump dev opts)))
 
-    (hello/run ;args)))
+    (do
+      (hello/run dev ;args)
+      0)))
+
+(defn run
+  [& args]
+  (let [dev (device/detect)
+        result (protect (run-with-device dev args))]
+    (device/close dev)
+    (if (get result 0)
+      (os/exit (get result 1))
+      (error (get result 1)))))

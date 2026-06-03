@@ -1,9 +1,15 @@
 (import ./paint :as paint)
-(import ./platform :as platform)
+(import ./device :as device)
 
 (defn- native-fn
   [name]
-  (platform/native-fn name))
+  (device/native-fn (device/current) name))
+
+(defn- split-device-args
+  [args]
+  (if (and (> (length args) 0) (device/device? (get args 0)))
+    [(get args 0) (array/slice args 1)]
+    [(device/current) args]))
 
 (def- module-file (os/realpath (dyn :current-file)))
 
@@ -119,31 +125,33 @@
 
 
 (defn screen-size
-  []
-  (platform/screen-size))
+  [&opt dev]
+  (device/screen-size (or dev (device/current))))
 
 (defn- create-native
-  [width height pixel-format font-dir default-family]
+  [dev width height pixel-format font-dir default-family]
+  (device/set-current! dev)
   (if font-dir
-    ((native-fn 'create) width height pixel-format font-dir default-family)
-    ((native-fn 'create) width height pixel-format)))
+    ((device/native-fn dev 'create) width height pixel-format font-dir default-family)
+    ((device/native-fn dev 'create) width height pixel-format)))
 
 (defn create
   [& args]
-  (case (length args)
-    0 (let [size (screen-size)]
-        (create-native (get size :width) (get size :height) (get size :pixel-format :gray8) (default-font-dir) "Noto Sans"))
-    1 (let [opts (get args 0)]
-        (unless (or (= :table (type opts)) (= :struct (type opts)))
-          (error "skia/create with one argument expects an options table"))
-        (let [size (screen-size)]
-          (create-native (get opts :width)
-                         (get opts :height)
-                         (get opts :pixel-format (get size :pixel-format :gray8))
-                         (font-dir-value opts)
-                         (family-name (get opts :font :sans)))))
-    2 (create-native (get args 0) (get args 1) :gray8 (default-font-dir) "Noto Sans")
-    (error "skia/create expects zero args, width/height, or an options table")))
+  (let [[dev create-args] (split-device-args args)]
+    (case (length create-args)
+      0 (let [size (screen-size dev)]
+          (create-native dev (get size :width) (get size :height) (get size :pixel-format :gray8) (default-font-dir) "Noto Sans"))
+      1 (let [opts (get create-args 0)]
+          (unless (or (= :table (type opts)) (= :struct (type opts)))
+            (error "skia/create with one argument expects an options table"))
+          (let [size (screen-size dev)]
+            (create-native dev (get opts :width)
+                           (get opts :height)
+                           (get opts :pixel-format (get size :pixel-format :gray8))
+                           (font-dir-value opts)
+                           (family-name (get opts :font :sans)))))
+      2 (create-native dev (get create-args 0) (get create-args 1) :gray8 (default-font-dir) "Noto Sans")
+      (error "skia/create expects an optional device plus zero args, width/height, or an options table"))))
 
 (defn- dict?
   [value]
@@ -425,9 +433,19 @@
   ((native-fn 'sample-rgba) canvas x y))
 
 (defn present
-  [canvas &opt options]
-  (platform/present canvas (or options @{})))
+  [& args]
+  (let [[dev present-args] (split-device-args args)
+        canvas (get present-args 0 nil)
+        options (get present-args 1 @{})]
+    (unless canvas
+      (error "skia/present expects an optional device, a canvas, and optional options"))
+    (device/present dev canvas (or options @{}))))
 
 (defn run-static
-  [draw &opt options]
-  (platform/run-static draw (or options @{})))
+  [& args]
+  (let [[dev run-args] (split-device-args args)
+        draw (get run-args 0 nil)
+        options (get run-args 1 @{})]
+    (unless draw
+      (error "skia/run-static expects an optional device, a draw function, and optional options"))
+    (device/run-static dev draw (or options @{}))))

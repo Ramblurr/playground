@@ -1,28 +1,26 @@
 (def default-native-path "/mnt/onboard/janet-eink-demo/janet/lib/janet-skia.so")
 
-(var- native-module nil)
-
 (defn- native-path
   []
   (or (os/getenv "OTTER_SKIA_NATIVE")
       default-native-path))
 
 (defn- module
-  []
-  (unless native-module
-    (set native-module (native (native-path))))
-  native-module)
+  [self]
+  (unless (get self :native-module nil)
+    (put self :native-module (native (native-path))))
+  (get self :native-module))
 
 (defn native-fn
-  [name]
-  (((module) name) :value))
+  [self name]
+  (((module self) name) :value))
 
 (defn screen-size
-  []
-  (def fb-size ((native-fn 'framebuffer-size)))
-  @{:width (get fb-size :width)
-    :height (get fb-size :height)
-    :pixel-format :gray8})
+  [self]
+  (let [fb-size ((native-fn self 'framebuffer-size))]
+    @{:width (get fb-size :width)
+      :height (get fb-size :height)
+      :pixel-format :gray8}))
 
 (def capabilities
   @{:invert-output? true
@@ -59,54 +57,64 @@
       :full-refresh? (or invert-output? night-mode?)}))
 
 (defn present
-  [canvas &opt options]
-  (def opts (present-options options))
-  ((native-fn 'present) canvas (get opts :flash?) (get opts :invert-output?) (get opts :night-mode?)))
+  [self canvas &opt options]
+  (let [opts (present-options options)]
+    ((native-fn self 'present) canvas (get opts :flash?) (get opts :invert-output?) (get opts :night-mode?))))
 
 (defn input-open
-  [path &opt options]
-  ((native-fn 'input-open) path (or options {})))
+  [self path &opt options]
+  ((native-fn self 'input-open) path (or options {})))
 
 (defn input-open-default
-  [&opt options]
-  ((native-fn 'input-open-scan) (or options {})))
+  [self &opt options]
+  ((native-fn self 'input-open-scan) (or options {})))
 
 (defn input-fdopen
-  [fd path &opt options]
-  ((native-fn 'input-fdopen) fd path (or options {})))
+  [self fd path &opt options]
+  ((native-fn self 'input-fdopen) fd path (or options {})))
 
 (defn input-close
-  [handle]
-  ((native-fn 'input-close) handle))
+  [self handle]
+  ((native-fn self 'input-close) handle))
 
 (defn input-close-all
-  []
-  ((native-fn 'input-close-all)))
+  [self]
+  ((native-fn self 'input-close-all)))
 
 (defn input-wait-event
-  [timeout-ms &opt max-events]
+  [self timeout-ms &opt max-events]
   (if max-events
-    ((native-fn 'input-wait-event) timeout-ms max-events)
-    ((native-fn 'input-wait-event) timeout-ms)))
+    ((native-fn self 'input-wait-event) timeout-ms max-events)
+    ((native-fn self 'input-wait-event) timeout-ms)))
 
 (defn input-poll
-  [timeout-ms &opt max-events]
-  (input-wait-event timeout-ms max-events))
+  [self timeout-ms &opt max-events]
+  (input-wait-event self timeout-ms max-events))
 
 (defn run-static
-  [draw &opt options]
-  (def size (screen-size))
-  (def canvas ((native-fn 'create) (get size :width) (get size :height)))
-  (draw canvas)
-  (present canvas (or options @{})))
+  [self draw &opt options]
+  (let [size (screen-size self)
+        canvas ((native-fn self 'create) (get size :width) (get size :height))]
+    (draw canvas)
+    (present self canvas (or options @{}))))
 
-(defn provider
-  []
+(defn close
+  [self]
+  (unless (get self :closed? false)
+    (when (get self :native-module nil)
+      (input-close-all self))
+    (put self :closed? true))
+  nil)
+
+(defn make-device
+  [&opt _options]
   @{:name :kobo-fbink
+    :native-module nil
+    :closed? false
     :native-fn native-fn
     :screen-size screen-size
     :present present
-    :present-options present-options
+    :present-options (fn [self options] (present-options options))
     :run-static run-static
     :input-open input-open
     :input-open-default input-open-default
@@ -115,4 +123,5 @@
     :input-close-all input-close-all
     :input-wait-event input-wait-event
     :input-poll input-poll
+    :close close
     :capabilities capabilities})

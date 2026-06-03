@@ -1,6 +1,6 @@
 (use ../deps/testament)
 (import ../lib/skia :as skia)
-(import ../lib/platform/desktop :as desktop)
+(import ../lib/device :as device)
 
 (deftest public-skia-drawing-primitives-render-to-desktop-gray8-canvas
   (def frame (skia/create 64 64))
@@ -27,8 +27,9 @@
 
 
 (deftest desktop-sdl-centers-a-half-scale-portrait-kobo-canvas-in-any-render-output
-  (def large (desktop/fixed-viewport 1000 1000))
-  (def small (desktop/fixed-viewport 500 400))
+  (let [dev (device/make-device :desktop-sdl)
+        large (:fixed-viewport dev 1000 1000)
+        small (:fixed-viewport dev 500 400)]
   (is (deep= @{:x 184
                :y 80
                :width 632
@@ -40,6 +41,6 @@
                :width 632
                :height 840}
              small)
-      "smaller compositor windows clip the half-scale portrait Kobo canvas"))
+      "smaller compositor windows clip the half-scale portrait Kobo canvas")))
 
 (run-tests!)

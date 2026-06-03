@@ -161,9 +161,9 @@
     canvas))
 
 (defn run
-  "Creates the default platform canvas, draws the demo, and presents it."
-  [& _args]
-  (let [canvas (skia/create)]
+  "Creates the device canvas, draws the demo, and presents it."
+  [dev & _args]
+  (let [canvas (skia/create dev)]
     (draw canvas)
-    (skia/present canvas {:block? true})
+    (skia/present dev canvas {:block? true})
     canvas))

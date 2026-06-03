@@ -35,7 +35,7 @@
              observed)
       "public skia API draws paint specs into a gray8 canvas through one module"))
 
-(deftest public-skia-module-uses-platform-screen-size-for-default-canvas
+(deftest public-skia-module-uses-device-screen-size-for-default-canvas
   (def size (skia/screen-size))
   (def frame (skia/create))
   (def stats (skia/stats frame))
@@ -53,7 +53,7 @@
                          :height 1680
                          :pixel-format :rgba32}}
              observed)
-      "default canvas dimensions come from the selected platform provider"))
+      "default canvas dimensions come from the selected device"))
 
 (deftest clipping-transform-and-scoped-restore-constrain-later-draws
   (def frame (skia/create 48 48))

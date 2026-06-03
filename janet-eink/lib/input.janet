@@ -1,4 +1,4 @@
-(import ./platform :as platform)
+(import ./device :as device)
 (import ./input/raw :as raw)
 (import ./input/normalize :as normalize)
 
@@ -11,24 +11,24 @@
   (and (dict? value) (has-key? value :error)))
 
 (defn open
-  [path &opt options]
-  (platform/input-open path (or options {})))
+  [dev path &opt options]
+  (device/input-open dev path (or options {})))
 
 (defn open-default
-  [&opt options]
-  (platform/input-open-default (or options {})))
+  [dev &opt options]
+  (device/input-open-default dev (or options {})))
 
 (defn poll
-  [timeout-ms &opt max-events]
-  (platform/input-poll timeout-ms max-events))
+  [dev timeout-ms &opt max-events]
+  (device/input-poll dev timeout-ms max-events))
 
 (defn close
-  [handle]
-  (platform/input-close handle))
+  [dev handle]
+  (device/input-close dev handle))
 
 (defn close-all
-  []
-  (platform/input-close-all))
+  [dev]
+  (device/input-close-all dev))
 
 (defn- opened-handles
   [result]
@@ -73,12 +73,12 @@
   (pp event))
 
 (defn dump
-  [&opt opts]
+  [dev &opt opts]
   (let [options (or opts {})
         open-options {:grab? (get options :grab? false)}
         open-result (if-let [path (get options :path nil)]
-                      (open path open-options)
-                      (open-default open-options))]
+                      (open dev path open-options)
+                      (open-default dev open-options))]
     (if (error-result? open-result)
       (do
         (print-open-error open-result)
@@ -87,7 +87,7 @@
         (if (= 0 (length handles))
           (do
             (eprint "input open produced no handles")
-            (close-all)
+            (close-all dev)
             1)
           (let [state (normalize/new-state)
                 limit (get options :limit 200)
@@ -99,7 +99,7 @@
             (var status 0)
             (var running true)
             (while (and running (< printed limit))
-              (let [result (poll timeout-ms (max 1 (- limit printed)))]
+              (let [result (poll dev timeout-ms (max 1 (- limit printed)))]
                 (cond
                   (error-result? result)
                   (do
@@ -133,5 +133,5 @@
                                 (when (terminal-event? record)
                                   (set running false))))
                             (++ printed)))))))))
-            (close-all)
+            (close-all dev)
             status))))))

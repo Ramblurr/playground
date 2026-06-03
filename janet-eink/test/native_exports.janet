@@ -30,12 +30,13 @@
       (put out key (get table key))))
   out)
 
-(deftest desktop-native-module-registers-common-drawing-and-platform-present
-  (def desktop (require-module "../lib/platform/desktop"))
-  (when desktop
-    (def provider-fn (module-value desktop 'provider))
-    (when provider-fn
-      (def native-fn (get (provider-fn) :native-fn))
+(deftest desktop-native-module-registers-common-drawing-and-device-present
+  (def device-module (require-module "../lib/device"))
+  (when device-module
+    (def make-device (module-value device-module 'make-device))
+    (when make-device
+      (def dev (make-device :desktop-sdl))
+      (def native-fn (fn [name] (:native-fn dev name)))
       (def observed
         @{:create (native-export? native-fn 'create)
           :clear (native-export? native-fn 'clear)
@@ -90,14 +91,15 @@
                    :sdl-input-close-all true
                    :sdl-input-wait-event true}
                  observed)
-          "desktop native module exposes shared drawing functions plus platform presentation"))))
+          "desktop native module exposes shared drawing functions plus device presentation"))))
 
 (deftest desktop-native-input-noninteractive-smoke
-  (def desktop (require-module "../lib/platform/desktop"))
-  (when desktop
-    (def provider-fn (module-value desktop 'provider))
-    (when provider-fn
-      (def native-fn (get (provider-fn) :native-fn))
+  (def device-module (require-module "../lib/device"))
+  (when device-module
+    (def make-device (module-value device-module 'make-device))
+    (when make-device
+      (def dev (make-device :desktop-sdl))
+      (def native-fn (fn [name] (:native-fn dev name)))
       (def input-open (native-fn 'input-open))
       (def input-fdopen (native-fn 'input-fdopen))
       (def close-all (native-fn 'input-close-all))
