@@ -98,7 +98,6 @@
       devShells.${system}.default = pkgs.mkShell {
         packages = [
           pkgs.janet
-          pkgs.jpm
           pkgs.gcc
           pkgs.gnumake
           pkgs.pkg-config
@@ -110,23 +109,46 @@
         ];
 
         shellHook = ''
-          #export JANET_EINK_JPM_TREE="$PWD/.dev-jpm-tree"
-          #export PATH="$JANET_EINK_JPM_TREE/bin:$PATH"
-          #export JANET_PATH="$JANET_EINK_JPM_TREE/lib''${JANET_PATH:+:$JANET_PATH}"
+          export JANET_EINK_JANET_TREE="$PWD/.dev-janet-tree"
+          mkdir -p "$JANET_EINK_JANET_TREE"
+
+          case ":''${JANET_PATH-}:" in
+            *:"$JANET_EINK_JANET_TREE":*) ;;
+            *) export JANET_PATH="''${JANET_PATH:+$JANET_PATH:}$JANET_EINK_JANET_TREE" ;;
+          esac
+
+          case ":$PATH:" in
+            *:"$JANET_EINK_JANET_TREE/bin":*) ;;
+            *) export PATH="$JANET_EINK_JANET_TREE/bin:$PATH" ;;
+          esac
+
           export OTTER_SKIA_NATIVE="${janetOtterSdl}/lib/janet-skia.so"
           export OTTER_FONT_DIR="${otterFonts}/share/otter/fonts"
           export SDL_VIDEODRIVER=wayland
+
+          if [ ! -x "$JANET_EINK_JANET_TREE/bin/janet-netrepl" ]; then
+            SPORK_SRC="/home/ramblurr/src/github.com/janet-lang/spork"
+            if [ -d "$SPORK_SRC" ]; then
+              echo "Installing spork netrepl into $JANET_EINK_JANET_TREE"
+              if ! (cd "$SPORK_SRC" && janet --install . > "$JANET_EINK_JANET_TREE/spork-install.log" 2>&1); then
+                echo "  spork install failed; see $JANET_EINK_JANET_TREE/spork-install.log"
+              fi
+            else
+              echo "  spork source not found at $SPORK_SRC; janet-netrepl unavailable"
+            fi
+          fi
+
           echo "Janet dev shell"
           echo "  janet: $(command -v janet)"
-          echo "  jpm:   $(command -v jpm)"
           echo "  jeep:  $(command -v jeep)"
+          echo "  local Janet tree: $JANET_EINK_JANET_TREE"
+          if command -v janet-netrepl >/dev/null 2>&1; then
+            echo "  janet-netrepl: $(command -v janet-netrepl)"
+          else
+            echo "  janet-netrepl: not installed"
+          fi
           echo "  skia native: $OTTER_SKIA_NATIVE"
           echo "  font dir: $OTTER_FONT_DIR"
-          #echo "  local JPM tree: $JANET_EINK_JPM_TREE"
-          #if [ ! -x "$JANET_EINK_JPM_TREE/bin/janet-netrepl" ]; then
-          #  echo "  spork netrepl not installed yet; run:"
-          #  echo "    (cd /home/ramblurr/src/github.com/janet-lang/spork && jpm --tree=$JANET_EINK_JPM_TREE install)"
-          #fi
         '';
       };
     };

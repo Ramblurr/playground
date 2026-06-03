@@ -3,6 +3,7 @@
 prompts/
 archive/
 .dev-jpm-tree/
+.dev-janet-tree/
 jpm_tree/
 build/
 target/

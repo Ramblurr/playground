@@ -118,66 +118,47 @@ jeep prep vendor
 
 ## Local netrepl
 
-Spork script reference:
+`nix develop` sets `JANET_EINK_JANET_TREE=$PWD/.dev-janet-tree`, adds it to `JANET_PATH`/`PATH`, and installs Spork netrepl with `janet --install .` if missing. No JPM.
 
-```text
-/home/ramblurr/src/github.com/janet-lang/spork/bin/janet-netrepl
-```
-
-Start local server:
+Start:
 
 ```sh
 nix develop
-janet-netrepl -s -H 127.0.0.1 -P 9365
+nohup janet-netrepl -s -H 127.0.0.1 -P 9365 -m "Local Janet netrepl" \
+  > .netrepl-local.log 2>&1 < /dev/null & echo $! > .netrepl-local.pid
 ```
 
-Client smoke:
+Smoke:
 
 ```sh
 printf '(+ 20 22)\n' | janet-netrepl -c -H 127.0.0.1 -P 9365 -n smoke
 ```
 
-A local server was started during setup:
-
-- host: `127.0.0.1`
-- port: `9365`
-- pid file: `.netrepl-local.pid`
-- log: `.netrepl-local.log`
-
-Editor should connect to Janet netrepl, **not nREPL**, at `127.0.0.1:9365`.
+Editor: Janet netrepl, not nREPL, at `127.0.0.1:9365`.
 
 ## Kobo netrepl
 
-Spork netrepl is packaged for Kobo as `.#spork-netrepl-kobo` and included in `.#kobo-bundle`.
+`.#kobo-bundle` includes `bin/janet-netrepl`, required `share/janet/spork/*.janet`, and `share/janet/spork/rawterm.so`.
 
-Bundled files:
-
-- `bin/janet-netrepl`
-- `share/janet/spork/{argparse,ev-utils,generators,getline,msg,netrepl}.janet`
-- `share/janet/spork/rawterm.so`
-
-Start on Kobo:
+Restart on Kobo:
 
 ```sh
-ssh root@kobo-lan 'cd /mnt/onboard/janet-eink-demo/janet && \
+ssh root@kobo-lan 'set -eu; cd /mnt/onboard/janet-eink-demo/janet; \
+  if [ -f netrepl.pid ]; then kill $(cat netrepl.pid) 2>/dev/null || true; fi; \
+  rm -f netrepl.pid; \
+  sleep 1; \
   nohup ./bin/janet-netrepl -s -H 0.0.0.0 -P 9365 -m "Kobo Janet netrepl" \
     > netrepl.log 2>&1 < /dev/null & echo $! > netrepl.pid'
 ```
 
-Stop on Kobo:
-
-```sh
-ssh root@kobo-lan 'cd /mnt/onboard/janet-eink-demo/janet && kill $(cat netrepl.pid)'
-```
-
-Local client smoke:
+Smoke:
 
 ```sh
 KOBO_HOST=$(ssh -G kobo-lan | awk '/^hostname /{print $2; exit}')
 printf '(+ 40 2)\n' | janet-netrepl -c -H "$KOBO_HOST" -P 9365 -n smoke
 ```
 
-`kobo-lan` is an SSH alias; Janet netrepl needs the resolved host/IP unless DNS also knows `kobo-lan`.
+Editor: Janet netrepl, not nREPL, at resolved `kobo-lan`:9365.
 
 ## Reference
 
