@@ -29,6 +29,37 @@ struct GrayStats {
     std::uint64_t checksum = 0;
 };
 
+enum class PaintStyle {
+    Fill,
+    Stroke,
+};
+
+enum class PaintCap {
+    Butt,
+    Round,
+    Square,
+};
+
+enum class PaintJoin {
+    Miter,
+    Round,
+    Bevel,
+};
+
+struct NormalizedPaint {
+    PaintStyle style = PaintStyle::Fill;
+    float r = 0.0f;
+    float g = 0.0f;
+    float b = 0.0f;
+    float a = 1.0f;
+    float stroke_width = 1.0f;
+    PaintCap cap = PaintCap::Butt;
+    PaintJoin join = PaintJoin::Miter;
+    float miter = 4.0f;
+    bool anti_alias = true;
+    bool skia_dither = false;
+};
+
 struct FontOptions {
     std::string family;
     float size = 16.0f;
@@ -95,9 +126,9 @@ private:
 };
 
 bool valid_dimensions(int width, int height);
-void clear(GrayCanvas &canvas, std::uint8_t gray);
-bool draw_rect(GrayCanvas &canvas, float x, float y, float width, float height, std::uint8_t gray);
-bool draw_rounded_rect(GrayCanvas &canvas, float x, float y, float width, float height, float radius, std::uint8_t gray);
+void clear(GrayCanvas &canvas, const NormalizedPaint &paint);
+bool draw_rect(GrayCanvas &canvas, float x, float y, float width, float height, const NormalizedPaint &paint);
+bool draw_rounded_rect(GrayCanvas &canvas, float x, float y, float width, float height, float radius, const NormalizedPaint &paint);
 bool draw_triangle(
     GrayCanvas &canvas,
     float x1,
@@ -106,17 +137,17 @@ bool draw_triangle(
     float y2,
     float x3,
     float y3,
-    std::uint8_t gray);
-bool draw_circle(GrayCanvas &canvas, float cx, float cy, float radius, std::uint8_t gray);
+    const NormalizedPaint &paint);
+bool draw_circle(GrayCanvas &canvas, float cx, float cy, float radius, const NormalizedPaint &paint);
 bool save(GrayCanvas &canvas);
 bool restore(GrayCanvas &canvas);
 bool translate(GrayCanvas &canvas, float x, float y);
 bool scale(GrayCanvas &canvas, float sx, float sy);
 bool clip_rect(GrayCanvas &canvas, float x, float y, float width, float height);
-bool draw_line(GrayCanvas &canvas, float x1, float y1, float x2, float y2, std::uint8_t gray, float stroke_width);
-bool draw_path(GrayCanvas &canvas, const std::vector<float> &coords, bool closed, std::uint8_t gray);
+bool draw_line(GrayCanvas &canvas, float x1, float y1, float x2, float y2, const NormalizedPaint &paint);
+bool draw_path(GrayCanvas &canvas, const std::vector<float> &coords, bool closed, const NormalizedPaint &paint);
 bool shape_text(GrayCanvas &canvas, const std::string &utf8, const FontOptions &font_options, const std::string &features_string, TextLine *line, std::string *error_message);
-bool draw_text_line(GrayCanvas &canvas, const TextLine &line, float x, float y, std::uint8_t gray);
+bool draw_text_line(GrayCanvas &canvas, const TextLine &line, float x, float y, const NormalizedPaint &paint);
 bool draw_image(GrayCanvas &canvas, const RasterImage &image, float src_x, float src_y, float src_width, float src_height, float dst_x, float dst_y, float dst_width, float dst_height, float alpha);
 std::uint8_t sample_gray(const GrayCanvas &canvas, int x, int y);
 GrayStats compute_stats(const GrayCanvas &canvas);

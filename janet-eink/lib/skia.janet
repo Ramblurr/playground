@@ -1,10 +1,5 @@
+(import ./paint :as paint)
 (import ./platform :as platform)
-
-(def black 0)
-(def dark-gray 96)
-(def gray 170)
-(def light-gray 224)
-(def white 255)
 
 (defn- native-fn
   [name]
@@ -150,9 +145,48 @@
     2 (create-native (get args 0) (get args 1) (default-font-dir) "Noto Sans")
     (error "skia/create expects zero args, width/height, or an options table")))
 
+(defn- dict?
+  [value]
+  (or (= :table (type value)) (= :struct (type value))))
+
+(defn- ensure-draw-options
+  [name opts]
+  (unless (dict? opts)
+    (error (string name " expects an options table with :paint")))
+  (unless (has-key? opts :paint)
+    (error (string name " options require :paint")))
+  opts)
+
+(defn- draw-paints
+  [name opts]
+  (let [options (ensure-draw-options name opts)]
+    (paint/paints (get options :paint) options)))
+
+(defn- require-fill-paint
+  [name p]
+  (unless (= :fill (get p :style))
+    (error (string name " requires a fill paint")))
+  p)
+
+(defn- require-stroke-paint
+  [name p]
+  (unless (= :stroke (get p :style))
+    (error (string name " requires a stroke paint")))
+  p)
+
+(defn- clear-paint
+  [spec]
+  (let [paint-spec (if (and (dict? spec) (has-key? spec :paint))
+                     (get spec :paint)
+                     spec)
+        paints (paint/paints paint-spec @{})]
+    (unless (= 1 (length paints))
+      (error "skia/clear expects exactly one color or fill paint spec"))
+    (require-fill-paint "skia/clear" (get paints 0))))
+
 (defn clear
-  [canvas {:gray gray}]
-  ((native-fn 'clear) canvas gray))
+  [canvas spec]
+  ((native-fn 'clear) canvas (clear-paint spec)))
 
 (defn stats
   [canvas]
@@ -167,12 +201,16 @@
   (get (stats canvas) :height))
 
 (defn draw-rect
-  [canvas x y w h {:gray gray}]
-  ((native-fn 'draw-rect) canvas x y w h gray))
+  [canvas x y w h opts]
+  (each p (draw-paints "skia/draw-rect" opts)
+    ((native-fn 'draw-rect) canvas x y w h p))
+  canvas)
 
 (defn draw-rounded-rect
-  [canvas x y w h radius {:gray gray}]
-  ((native-fn 'draw-rounded-rect) canvas x y w h radius gray))
+  [canvas x y w h radius opts]
+  (each p (draw-paints "skia/draw-rounded-rect" opts)
+    ((native-fn 'draw-rounded-rect) canvas x y w h radius p))
+  canvas)
 
 (defn- point-pair?
   [point]
@@ -194,24 +232,33 @@
   flat)
 
 (defn draw-line
-  [canvas x1 y1 x2 y2 {:gray gray :stroke-width stroke-width}]
-  ((native-fn 'draw-line) canvas x1 y1 x2 y2 gray stroke-width))
+  [canvas x1 y1 x2 y2 opts]
+  (each p (draw-paints "skia/draw-line" opts)
+    ((native-fn 'draw-line) canvas x1 y1 x2 y2 (require-stroke-paint "skia/draw-line" p)))
+  canvas)
 
 (defn draw-path
-  [canvas points {:gray gray}]
-  ((native-fn 'draw-path) canvas (flatten-points points) true gray))
+  [canvas points opts]
+  (let [flat (flatten-points points)]
+    (each p (draw-paints "skia/draw-path" opts)
+      ((native-fn 'draw-path) canvas flat true p)))
+  canvas)
 
 (defn draw-polygon
   [canvas points opts]
   (draw-path canvas points opts))
 
 (defn draw-triangle
-  [canvas x1 y1 x2 y2 x3 y3 {:gray gray}]
-  ((native-fn 'draw-triangle) canvas x1 y1 x2 y2 x3 y3 gray))
+  [canvas x1 y1 x2 y2 x3 y3 opts]
+  (each p (draw-paints "skia/draw-triangle" opts)
+    ((native-fn 'draw-triangle) canvas x1 y1 x2 y2 x3 y3 p))
+  canvas)
 
 (defn draw-circle
-  [canvas cx cy radius {:gray gray}]
-  ((native-fn 'draw-circle) canvas cx cy radius gray))
+  [canvas cx cy radius opts]
+  (each p (draw-paints "skia/draw-circle" opts)
+    ((native-fn 'draw-circle) canvas cx cy radius p))
+  canvas)
 
 (defn shape-text
   [canvas text &opt opts]
@@ -231,8 +278,10 @@
   ((native-fn 'text-line-metrics) text-line))
 
 (defn draw-text-line
-  [canvas text-line x y {:gray gray}]
-  ((native-fn 'draw-text-line) canvas text-line x y gray))
+  [canvas text-line x y opts]
+  (each p (draw-paints "skia/draw-text-line" opts)
+    ((native-fn 'draw-text-line) canvas text-line x y p))
+  canvas)
 
 (defn load-png
   [path]

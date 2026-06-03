@@ -43,8 +43,8 @@
 
 (deftest ui-label-measures-and-draws-shaped-text
   (def frame (test-canvas))
-  (skia/clear frame {:gray skia/white})
-  (def node (ui/make [ui/label {:font-size 24 :paint skia/black} "Hello" " UI"]))
+  (skia/clear frame "F")
+  (def node (ui/make [ui/label {:font-size 24 :paint "0"} "Hello" " UI"]))
   (def size (ui/measure frame node {:w 320 :h 120}))
   (def metrics (skia/text-line-metrics (get node :text-line)))
   (def before (skia/stats frame))
@@ -119,9 +119,9 @@
 
 (deftest ui-render-renders-one-label-through-public-facade
   (def frame (test-canvas))
-  (skia/clear frame {:gray skia/white})
+  (skia/clear frame "F")
   (def before (skia/stats frame))
-  (def node (ui/render frame [ui/label {:font-size 24 :paint skia/black} "Hello shaped UI"]))
+  (def node (ui/render frame [ui/label {:font-size 24 :paint "0"} "Hello shaped UI"]))
   (def after (skia/stats frame))
   (def observed
     @{:kind (get node :kind)

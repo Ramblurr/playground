@@ -92,9 +92,9 @@
   (let [size (ensure-shaped! self ctx)
         line (get self :text-line nil)
         text (get self :text "")
-        paint (option (get self :props @{}) ctx :paint skia/black)]
+        paint (option (get self :props @{}) ctx :paint "0")]
     (when (and line (> (length text) 0) (> (get size :w) 0) (> (get size :h) 0))
-      (skia/draw-text-line (get ctx :canvas) line (get bounds :x) (get bounds :y) {:gray paint})))
+      (skia/draw-text-line (get ctx :canvas) line (get bounds :x) (get bounds :y) {:paint paint})))
   self)
 
 (defn- label-unmount

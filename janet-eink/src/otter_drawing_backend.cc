@@ -35,24 +35,43 @@ namespace {
 constexpr std::uint64_t kFnvOffset = 1469598103934665603ULL;
 constexpr std::uint64_t kFnvPrime = 1099511628211ULL;
 
-SkColor gray_color(std::uint8_t gray) {
-    return SkColorSetARGB(255, gray, gray, gray);
+std::uint8_t unit_to_byte(float value) {
+    if (!std::isfinite(value)) {
+        return 0;
+    }
+    return static_cast<std::uint8_t>(std::clamp(std::lround(value * 255.0f), 0L, 255L));
 }
 
-SkPaint fill_paint(std::uint8_t gray) {
-    SkPaint paint;
-    paint.setAntiAlias(false);
-    paint.setColor(gray_color(gray));
-    paint.setStyle(SkPaint::kFill_Style);
-    return paint;
+std::uint8_t luminance_byte(const NormalizedPaint &paint) {
+    const float gray = (0.299f * paint.r) + (0.587f * paint.g) + (0.114f * paint.b);
+    return unit_to_byte(gray);
 }
 
-SkPaint stroke_paint(std::uint8_t gray, float stroke_width) {
+SkColor gray_color(const NormalizedPaint &paint) {
+    const std::uint8_t gray = luminance_byte(paint);
+    return SkColorSetARGB(unit_to_byte(paint.a), gray, gray, gray);
+}
+
+SkPaint skia_paint(const NormalizedPaint &normalized) {
     SkPaint paint;
-    paint.setAntiAlias(false);
-    paint.setColor(gray_color(gray));
-    paint.setStyle(SkPaint::kStroke_Style);
-    paint.setStrokeWidth(stroke_width);
+    paint.setAntiAlias(normalized.anti_alias);
+    paint.setDither(normalized.skia_dither);
+    paint.setColor(gray_color(normalized));
+    paint.setStyle(normalized.style == PaintStyle::Stroke ? SkPaint::kStroke_Style : SkPaint::kFill_Style);
+    paint.setStrokeWidth(normalized.stroke_width);
+    switch (normalized.cap) {
+        case PaintCap::Round: paint.setStrokeCap(SkPaint::kRound_Cap); break;
+        case PaintCap::Square: paint.setStrokeCap(SkPaint::kSquare_Cap); break;
+        case PaintCap::Butt:
+        default: paint.setStrokeCap(SkPaint::kButt_Cap); break;
+    }
+    switch (normalized.join) {
+        case PaintJoin::Round: paint.setStrokeJoin(SkPaint::kRound_Join); break;
+        case PaintJoin::Bevel: paint.setStrokeJoin(SkPaint::kBevel_Join); break;
+        case PaintJoin::Miter:
+        default: paint.setStrokeJoin(SkPaint::kMiter_Join); break;
+    }
+    paint.setStrokeMiter(normalized.miter);
     return paint;
 }
 
@@ -439,30 +458,31 @@ bool RasterImage::load_png(const char *path) {
     return true;
 }
 
-void clear(GrayCanvas &canvas, std::uint8_t gray) {
+void clear(GrayCanvas &canvas, const NormalizedPaint &paint) {
     SkBitmap &bitmap = canvas.bitmap();
     const int width = bitmap.width();
     const int height = bitmap.height();
+    const std::uint8_t gray = luminance_byte(paint);
     for (int y = 0; y < height; ++y) {
         std::uint8_t *row = static_cast<std::uint8_t *>(bitmap.getAddr(0, y));
         std::memset(row, gray, static_cast<std::size_t>(width));
     }
 }
 
-bool draw_rect(GrayCanvas &canvas, float x, float y, float width, float height, std::uint8_t gray) {
+bool draw_rect(GrayCanvas &canvas, float x, float y, float width, float height, const NormalizedPaint &paint) {
     if (!positive(width) || !positive(height)) {
         return false;
     }
-    canvas.sk_canvas().drawRect(SkRect::MakeXYWH(x, y, width, height), fill_paint(gray));
+    canvas.sk_canvas().drawRect(SkRect::MakeXYWH(x, y, width, height), skia_paint(paint));
     return true;
 }
 
-bool draw_rounded_rect(GrayCanvas &canvas, float x, float y, float width, float height, float radius, std::uint8_t gray) {
+bool draw_rounded_rect(GrayCanvas &canvas, float x, float y, float width, float height, float radius, const NormalizedPaint &paint) {
     if (!positive(width) || !positive(height) || !std::isfinite(radius)) {
         return false;
     }
     const SkScalar r = std::max(0.0f, radius);
-    canvas.sk_canvas().drawRoundRect(SkRect::MakeXYWH(x, y, width, height), r, r, fill_paint(gray));
+    canvas.sk_canvas().drawRoundRect(SkRect::MakeXYWH(x, y, width, height), r, r, skia_paint(paint));
     return true;
 }
 
@@ -474,7 +494,7 @@ bool draw_triangle(
     float y2,
     float x3,
     float y3,
-    std::uint8_t gray) {
+    const NormalizedPaint &paint) {
     if (!finite_pair(x1, y1) || !finite_pair(x2, y2) || !finite_pair(x3, y3)) {
         return false;
     }
@@ -485,15 +505,15 @@ bool draw_triangle(
     builder.lineTo(x3, y3);
     builder.close();
 
-    canvas.sk_canvas().drawPath(builder.detach(), fill_paint(gray));
+    canvas.sk_canvas().drawPath(builder.detach(), skia_paint(paint));
     return true;
 }
 
-bool draw_circle(GrayCanvas &canvas, float cx, float cy, float radius, std::uint8_t gray) {
+bool draw_circle(GrayCanvas &canvas, float cx, float cy, float radius, const NormalizedPaint &paint) {
     if (!std::isfinite(cx) || !std::isfinite(cy) || !positive(radius)) {
         return false;
     }
-    canvas.sk_canvas().drawCircle(cx, cy, radius, fill_paint(gray));
+    canvas.sk_canvas().drawCircle(cx, cy, radius, skia_paint(paint));
     return true;
 }
 
@@ -534,15 +554,15 @@ bool clip_rect(GrayCanvas &canvas, float x, float y, float width, float height) 
     return true;
 }
 
-bool draw_line(GrayCanvas &canvas, float x1, float y1, float x2, float y2, std::uint8_t gray, float stroke_width) {
-    if (!finite_pair(x1, y1) || !finite_pair(x2, y2) || !positive(stroke_width)) {
+bool draw_line(GrayCanvas &canvas, float x1, float y1, float x2, float y2, const NormalizedPaint &paint) {
+    if (!finite_pair(x1, y1) || !finite_pair(x2, y2) || !positive(paint.stroke_width)) {
         return false;
     }
-    canvas.sk_canvas().drawLine(x1, y1, x2, y2, stroke_paint(gray, stroke_width));
+    canvas.sk_canvas().drawLine(x1, y1, x2, y2, skia_paint(paint));
     return true;
 }
 
-bool draw_path(GrayCanvas &canvas, const std::vector<float> &coords, bool closed, std::uint8_t gray) {
+bool draw_path(GrayCanvas &canvas, const std::vector<float> &coords, bool closed, const NormalizedPaint &paint) {
     if (coords.size() < 4 || coords.size() % 2 != 0) {
         return false;
     }
@@ -564,7 +584,7 @@ bool draw_path(GrayCanvas &canvas, const std::vector<float> &coords, bool closed
         builder.close();
     }
 
-    canvas.sk_canvas().drawPath(builder.detach(), fill_paint(gray));
+    canvas.sk_canvas().drawPath(builder.detach(), skia_paint(paint));
     return true;
 }
 
@@ -718,13 +738,11 @@ bool shape_text(GrayCanvas &canvas, const std::string &utf8, const FontOptions &
     return true;
 }
 
-bool draw_text_line(GrayCanvas &canvas, const TextLine &line, float x, float y, std::uint8_t gray) {
+bool draw_text_line(GrayCanvas &canvas, const TextLine &line, float x, float y, const NormalizedPaint &paint) {
     if (!finite_pair(x, y) || !line.blob) {
         return false;
     }
-    SkPaint paint = fill_paint(gray);
-    paint.setAntiAlias(true);
-    canvas.sk_canvas().drawTextBlob(line.blob, x, y + line.metrics.height, paint);
+    canvas.sk_canvas().drawTextBlob(line.blob, x, y + line.metrics.height, skia_paint(paint));
     return true;
 }
 

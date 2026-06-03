@@ -16,7 +16,7 @@ struct Dimensions {
 
 Dimensions get_dimensions(int32_t argc, Janet *argv);
 otter::GrayCanvas *get_canvas(Janet *argv, int32_t n);
-std::uint8_t get_gray(Janet *argv, int32_t n);
+otter::NormalizedPaint get_paint(Janet *argv, int32_t n);
 Janet make_stats_table(const otter::GrayStats &stats);
 Janet make_dimensions_table(int width, int height);
 void register_common_cfuns(JanetTable *env, const char *prefix);

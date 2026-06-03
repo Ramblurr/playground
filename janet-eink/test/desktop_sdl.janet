@@ -4,10 +4,10 @@
 
 (deftest public-skia-drawing-primitives-render-to-desktop-gray8-canvas
   (def frame (skia/create 64 64))
-  (skia/clear frame {:gray skia/white})
-  (skia/draw-rect frame 4 4 20 18 {:gray 96})
-  (skia/draw-triangle frame 10 50 30 28 50 50 {:gray 32})
-  (skia/draw-circle frame 48 16 8 {:gray 160})
+  (skia/clear frame "F")
+  (skia/draw-rect frame 4 4 20 18 {:paint {:fill-gray 96 :anti-alias? false}})
+  (skia/draw-triangle frame 10 50 30 28 50 50 {:paint {:fill-gray 32 :anti-alias? false}})
+  (skia/draw-circle frame 48 16 8 {:paint {:fill-gray 160 :anti-alias? false}})
   (def stats (skia/stats frame))
   (def observed
     @{:background (skia/sample-gray frame 0 0)
@@ -23,7 +23,7 @@
                :pixel-format :gray8
                :gray-shades 4}
              observed)
-      "public skia API renders primitives through the desktop native module"))
+      "public skia API renders paint primitives through the desktop native module"))
 
 
 (deftest desktop-sdl-centers-a-half-scale-portrait-kobo-canvas-in-any-render-output

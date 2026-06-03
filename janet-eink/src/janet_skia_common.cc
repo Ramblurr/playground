@@ -1,5 +1,7 @@
 #include "janet_skia_common.hh"
 
+#include <algorithm>
+#include <cmath>
 #include <new>
 #include <string>
 #include <vector>
@@ -83,7 +85,7 @@ static Janet cfun_create(int32_t argc, Janet *argv) {
 static Janet cfun_clear(int32_t argc, Janet *argv) {
     janet_fixarity(argc, 2);
     otter::GrayCanvas *canvas = get_canvas(argv, 0);
-    otter::clear(*canvas, get_gray(argv, 1));
+    otter::clear(*canvas, get_paint(argv, 1));
     return argv[0];
 }
 
@@ -96,7 +98,7 @@ static Janet cfun_draw_rect(int32_t argc, Janet *argv) {
             static_cast<float>(janet_getnumber(argv, 2)),
             static_cast<float>(janet_getnumber(argv, 3)),
             static_cast<float>(janet_getnumber(argv, 4)),
-            get_gray(argv, 5))) {
+            get_paint(argv, 5))) {
         janet_panic("draw-rect requires a positive finite width and height");
     }
     return argv[0];
@@ -112,7 +114,7 @@ static Janet cfun_draw_rounded_rect(int32_t argc, Janet *argv) {
             static_cast<float>(janet_getnumber(argv, 3)),
             static_cast<float>(janet_getnumber(argv, 4)),
             static_cast<float>(janet_getnumber(argv, 5)),
-            get_gray(argv, 6))) {
+            get_paint(argv, 6))) {
         janet_panic("draw-rounded-rect requires a positive finite width and height and finite radius");
     }
     return argv[0];
@@ -129,7 +131,7 @@ static Janet cfun_draw_triangle(int32_t argc, Janet *argv) {
             static_cast<float>(janet_getnumber(argv, 4)),
             static_cast<float>(janet_getnumber(argv, 5)),
             static_cast<float>(janet_getnumber(argv, 6)),
-            get_gray(argv, 7))) {
+            get_paint(argv, 7))) {
         janet_panic("draw-triangle requires finite points");
     }
     return argv[0];
@@ -143,7 +145,7 @@ static Janet cfun_draw_circle(int32_t argc, Janet *argv) {
             static_cast<float>(janet_getnumber(argv, 1)),
             static_cast<float>(janet_getnumber(argv, 2)),
             static_cast<float>(janet_getnumber(argv, 3)),
-            get_gray(argv, 4))) {
+            get_paint(argv, 4))) {
         janet_panic("draw-circle requires a finite center and positive finite radius");
     }
     return argv[0];
@@ -198,7 +200,7 @@ static Janet cfun_clip_rect(int32_t argc, Janet *argv) {
 }
 
 static Janet cfun_draw_line(int32_t argc, Janet *argv) {
-    janet_fixarity(argc, 7);
+    janet_fixarity(argc, 6);
     otter::GrayCanvas *canvas = get_canvas(argv, 0);
     if (!otter::draw_line(
             *canvas,
@@ -206,8 +208,7 @@ static Janet cfun_draw_line(int32_t argc, Janet *argv) {
             static_cast<float>(janet_getnumber(argv, 2)),
             static_cast<float>(janet_getnumber(argv, 3)),
             static_cast<float>(janet_getnumber(argv, 4)),
-            get_gray(argv, 5),
-            static_cast<float>(janet_getnumber(argv, 6)))) {
+            get_paint(argv, 5))) {
         janet_panic("draw-line requires finite points and positive finite stroke width");
     }
     return argv[0];
@@ -223,7 +224,7 @@ static Janet cfun_draw_path(int32_t argc, Janet *argv) {
         coords.push_back(static_cast<float>(janet_getnumber(view.items, i)));
     }
     const bool closed = janet_getboolean(argv, 2);
-    if (!otter::draw_path(*canvas, coords, closed, get_gray(argv, 3))) {
+    if (!otter::draw_path(*canvas, coords, closed, get_paint(argv, 3))) {
         janet_panic("draw-path requires at least two finite coordinate pairs");
     }
     return argv[0];
@@ -334,7 +335,7 @@ static Janet cfun_draw_text_line(int32_t argc, Janet *argv) {
     otter::TextLine *line = get_text_line(argv, 1);
     const float x = static_cast<float>(janet_getnumber(argv, 2));
     const float y = static_cast<float>(janet_getnumber(argv, 3));
-    if (!otter::draw_text_line(*canvas, *line, x, y, get_gray(argv, 4))) {
+    if (!otter::draw_text_line(*canvas, *line, x, y, get_paint(argv, 4))) {
         janet_panic("draw-text-line requires finite coordinates and a non-empty shaped text line");
     }
     return argv[0];
@@ -461,12 +462,105 @@ otter::GrayCanvas *get_canvas(Janet *argv, int32_t n) {
     return static_cast<otter::GrayCanvas *>(janet_getabstract(argv, n, &canvas_type));
 }
 
-std::uint8_t get_gray(Janet *argv, int32_t n) {
-    const int gray = janet_getinteger(argv, n);
-    if (gray < 0 || gray > 255) {
-        janet_panicf("gray value out of range 0..255: %d", gray);
+bool keyword_equals(Janet value, const char *expected) {
+    return janet_checktype(value, JANET_KEYWORD) && janet_cstrcmp(janet_unwrap_keyword(value), expected) == 0;
+}
+
+Janet paint_field(Janet paint, const char *key) {
+    Janet value = janet_get(paint, janet_ckeywordv(key));
+    if (janet_checktype(value, JANET_NIL)) {
+        janet_panicf("paint missing required field :%s", key);
     }
-    return static_cast<std::uint8_t>(gray);
+    return value;
+}
+
+float number_field(Janet paint, const char *key, float default_value, bool required) {
+    Janet value = janet_get(paint, janet_ckeywordv(key));
+    if (janet_checktype(value, JANET_NIL)) {
+        if (required) {
+            janet_panicf("paint missing required number field :%s", key);
+        }
+        return default_value;
+    }
+    if (!janet_checktype(value, JANET_NUMBER)) {
+        janet_panicf("paint field :%s must be a number", key);
+    }
+    const double number = janet_unwrap_number(value);
+    if (!std::isfinite(number)) {
+        janet_panicf("paint field :%s must be finite", key);
+    }
+    return static_cast<float>(number);
+}
+
+bool bool_field(Janet paint, const char *key, bool default_value) {
+    Janet value = janet_get(paint, janet_ckeywordv(key));
+    return janet_checktype(value, JANET_NIL) ? default_value : janet_truthy(value);
+}
+
+otter::PaintCap cap_field(Janet paint) {
+    Janet value = janet_get(paint, janet_ckeywordv("cap"));
+    if (janet_checktype(value, JANET_NIL) || keyword_equals(value, "butt")) {
+        return otter::PaintCap::Butt;
+    }
+    if (keyword_equals(value, "round")) {
+        return otter::PaintCap::Round;
+    }
+    if (keyword_equals(value, "square")) {
+        return otter::PaintCap::Square;
+    }
+    janet_panic("paint field :cap must be :butt, :round, or :square");
+}
+
+otter::PaintJoin join_field(Janet paint) {
+    Janet value = janet_get(paint, janet_ckeywordv("join"));
+    if (janet_checktype(value, JANET_NIL) || keyword_equals(value, "miter")) {
+        return otter::PaintJoin::Miter;
+    }
+    if (keyword_equals(value, "round")) {
+        return otter::PaintJoin::Round;
+    }
+    if (keyword_equals(value, "bevel")) {
+        return otter::PaintJoin::Bevel;
+    }
+    janet_panic("paint field :join must be :miter, :round, or :bevel");
+}
+
+otter::NormalizedPaint get_paint(Janet *argv, int32_t n) {
+    Janet value = argv[n];
+    if (!janet_checktype(value, JANET_TABLE) && !janet_checktype(value, JANET_STRUCT)) {
+        janet_panic("paint must be a table or struct normalized by lib/paint.janet");
+    }
+
+    otter::NormalizedPaint paint;
+    Janet style = paint_field(value, "style");
+    if (keyword_equals(style, "fill")) {
+        paint.style = otter::PaintStyle::Fill;
+    } else if (keyword_equals(style, "stroke")) {
+        paint.style = otter::PaintStyle::Stroke;
+    } else {
+        janet_panic("paint field :style must be :fill or :stroke");
+    }
+
+    paint.r = std::clamp(number_field(value, "r", 0.0f, true), 0.0f, 1.0f);
+    paint.g = std::clamp(number_field(value, "g", 0.0f, true), 0.0f, 1.0f);
+    paint.b = std::clamp(number_field(value, "b", 0.0f, true), 0.0f, 1.0f);
+    paint.a = std::clamp(number_field(value, "a", 1.0f, true), 0.0f, 1.0f);
+    paint.anti_alias = bool_field(value, "anti-alias?", true);
+    paint.skia_dither = bool_field(value, "skia-dither?", false);
+
+    if (paint.style == otter::PaintStyle::Stroke) {
+        paint.stroke_width = number_field(value, "width", 1.0f, false);
+        if (paint.stroke_width <= 0.0f) {
+            janet_panic("paint field :width must be positive");
+        }
+        paint.cap = cap_field(value);
+        paint.join = join_field(value);
+        paint.miter = number_field(value, "miter", 4.0f, false);
+        if (paint.miter <= 0.0f) {
+            janet_panic("paint field :miter must be positive");
+        }
+    }
+    return paint;
 }
 
 Janet make_stats_table(const otter::GrayStats &stats) {

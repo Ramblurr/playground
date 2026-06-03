@@ -8,7 +8,7 @@
   []
   [ui/label {:font-family "Noto Sans"
              :font-size 88
-             :paint skia/black}
+             :paint "0"}
    "Hello, world."])
 
 (defn draw
@@ -20,7 +20,7 @@
         size (ui/measure canvas node {:w w :h h})
         x (math/round (/ (- w (get size :w)) 2))
         y (math/round (/ (- h (get size :h)) 2))]
-    (skia/clear canvas {:gray skia/white})
+    (skia/clear canvas "F")
     (ui/draw canvas node (nodes/make-bounds x y (get size :w) (get size :h)))
     canvas))
 

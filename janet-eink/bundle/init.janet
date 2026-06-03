@@ -18,6 +18,7 @@
   (bundle/add manifest "lib/platform.janet" "otter/lib/platform.janet")
   (bundle/add manifest "lib/platform/desktop.janet" "otter/lib/platform/desktop.janet")
   (bundle/add manifest "lib/platform/kobo.janet" "otter/lib/platform/kobo.janet")
+  (bundle/add manifest "lib/paint.janet" "otter/lib/paint.janet")
   (bundle/add manifest "lib/skia.janet" "otter/lib/skia.janet")
   (bundle/add manifest "lib/ui.janet" "otter/lib/ui.janet")
   (bundle/add manifest "lib/ui/core.janet" "otter/lib/ui/core.janet")

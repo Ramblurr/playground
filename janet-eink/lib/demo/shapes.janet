@@ -2,15 +2,14 @@
 
 (defn fill
   [gray]
-  {:gray gray})
+  {:paint {:fill-gray gray :anti-alias? false}})
 
 (defn draw-border
   [canvas w h]
-  (skia/draw-rect canvas 0 0 w 6 (fill skia/black))
-  (skia/draw-rect canvas 0 (- h 6) w 6 (fill skia/black))
-  (skia/draw-rect canvas 0 0 6 h (fill skia/black))
-  (skia/draw-rect canvas (- w 6) 0 6 h (fill skia/black))
-)
+  (skia/draw-rect canvas 0 0 w 6 (fill 0))
+  (skia/draw-rect canvas 0 (- h 6) w 6 (fill 0))
+  (skia/draw-rect canvas 0 0 6 h (fill 0))
+  (skia/draw-rect canvas (- w 6) 0 6 h (fill 0)))
 
 (defn draw-gray-bars
   [canvas]
@@ -32,22 +31,20 @@
   (skia/draw-rounded-rect canvas 80 620 420 180 18 (fill 160))
   (skia/draw-rect canvas 110 660 360 30 (fill 32))
   (skia/draw-rect canvas 110 715 280 30 (fill 96))
-  (skia/draw-rect canvas 110 770 200 20 (fill 224))
-)
+  (skia/draw-rect canvas 110 770 200 20 (fill 224)))
 
 (defn draw-triangles
   [canvas]
   (skia/draw-triangle canvas 80 1360 205 1060 330 1360 (fill 32))
   (skia/draw-triangle canvas 340 1380 465 1080 590 1380 (fill 96))
   (skia/draw-triangle canvas 600 1380 725 1080 850 1380 (fill 160))
-  (skia/draw-triangle canvas 860 1380 985 1080 1110 1380 (fill 224))
-)
+  (skia/draw-triangle canvas 860 1380 985 1080 1110 1380 (fill 224)))
 
 (defn draw
   [canvas]
   (def w (skia/width canvas))
   (def h (skia/height canvas))
-  (skia/clear canvas (fill skia/white))
+  (skia/clear canvas "F")
   (draw-gray-bars canvas)
   (draw-cards canvas)
   (draw-triangles canvas)
