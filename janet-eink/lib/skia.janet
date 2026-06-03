@@ -131,18 +131,17 @@
 (defn create
   [& args]
   (case (length args)
-    0 (do
-        (def size (screen-size))
+    0 (let [size (screen-size)]
         (create-native (get size :width) (get size :height) (get size :pixel-format :gray8) (default-font-dir) "Noto Sans"))
-    1 (do
-        (def opts (get args 0))
+    1 (let [opts (get args 0)]
         (unless (or (= :table (type opts)) (= :struct (type opts)))
           (error "skia/create with one argument expects an options table"))
-        (create-native (get opts :width)
-                       (get opts :height)
-                       (get opts :pixel-format :gray8)
-                       (font-dir-value opts)
-                       (family-name (get opts :font :sans))))
+        (let [size (screen-size)]
+          (create-native (get opts :width)
+                         (get opts :height)
+                         (get opts :pixel-format (get size :pixel-format :gray8))
+                         (font-dir-value opts)
+                         (family-name (get opts :font :sans)))))
     2 (create-native (get args 0) (get args 1) :gray8 (default-font-dir) "Noto Sans")
     (error "skia/create expects zero args, width/height, or an options table")))
 

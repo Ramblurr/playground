@@ -26,6 +26,16 @@
     :present? (= :function (type (get provider :present)))
     :run-static? (= :function (type (get provider :run-static)))})
 
+(defn with-pixel-format-env
+  [value thunk]
+  (let [original (os/getenv "OTTER_PIXEL_FORMAT" "")
+        _ (os/setenv "OTTER_PIXEL_FORMAT" value)
+        result (protect (thunk))]
+    (os/setenv "OTTER_PIXEL_FORMAT" original)
+    (if (get result 0)
+      (get result 1)
+      (error (get result 1)))))
+
 (deftest desktop-provider-returns-provider-table
   (def desktop (require-module "../lib/platform/desktop"))
   (when desktop
@@ -39,6 +49,30 @@
                    :run-static? true}
                  observed)
           "desktop provider exposes native loading, screen size, presentation, and run-static"))))
+
+(deftest desktop-provider-defaults-to-rgba32-and-honors-pixel-format-env
+  (let [desktop (require-module "../lib/platform/desktop")]
+    (when desktop
+      (let [screen-size (module-value desktop 'screen-size)]
+        (when screen-size
+          (let [observed @{:default (with-pixel-format-env ""
+                                      (fn [] (get (screen-size) :pixel-format)))
+                           :rgba32 (with-pixel-format-env "rgba32"
+                                     (fn [] (get (screen-size) :pixel-format)))
+                           :gray8 (with-pixel-format-env "gray8"
+                                    (fn [] (get (screen-size) :pixel-format)))
+                           :colon-gray8 (with-pixel-format-env ":gray8"
+                                          (fn [] (get (screen-size) :pixel-format)))
+                           :invalid-rejected? (not (get (protect (with-pixel-format-env "rgb565"
+                                                                   (fn [] (screen-size))))
+                                                        0))}]
+            (is (deep= @{:default :rgba32
+                         :rgba32 :rgba32
+                         :gray8 :gray8
+                         :colon-gray8 :gray8
+                         :invalid-rejected? true}
+                       observed)
+                "desktop provider defaults to :rgba32 and supports OTTER_PIXEL_FORMAT overrides")))))))
 
 (deftest kobo-provider-returns-provider-table
   (def kobo (require-module "../lib/platform/kobo"))

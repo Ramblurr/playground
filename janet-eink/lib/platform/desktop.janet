@@ -53,11 +53,21 @@
   [name]
   (((module) name) :value))
 
+(defn- pixel-format
+  []
+  (case (os/getenv "OTTER_PIXEL_FORMAT" "")
+    "" :rgba32
+    "rgba32" :rgba32
+    ":rgba32" :rgba32
+    "gray8" :gray8
+    ":gray8" :gray8
+    (error "OTTER_PIXEL_FORMAT must be gray8 or rgba32")))
+
 (defn screen-size
   []
   @{:width default-width
     :height default-height
-    :pixel-format :gray8})
+    :pixel-format (pixel-format)})
 
 (defn present
   [canvas &opt options]
@@ -72,10 +82,10 @@
 
 (defn run-static
   [draw &opt options]
-  (def size (screen-size))
-  (def canvas ((native-fn 'create) (get size :width) (get size :height)))
-  (draw canvas)
-  (present canvas (or options @{})))
+  (let [size (screen-size)
+        canvas ((native-fn 'create) (get size :width) (get size :height) (get size :pixel-format))]
+    (draw canvas)
+    (present canvas (or options @{}))))
 
 (defn provider
   []

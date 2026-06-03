@@ -48,10 +48,10 @@
                 :pixel-format (get stats :pixel-format)}})
   (is (deep= @{:screen @{:width 1264
                          :height 1680
-                         :pixel-format :gray8}
+                         :pixel-format :rgba32}
                :canvas @{:width 1264
                          :height 1680
-                         :pixel-format :gray8}}
+                         :pixel-format :rgba32}}
              observed)
       "default canvas dimensions come from the selected platform provider"))
 
@@ -306,6 +306,18 @@
                :format :rgba32}
              observed)
       "rgba32 canvases preserve color channels instead of reducing paint to gray"))
+
+(deftest rgb-paint-drawn-into-gray8-uses-deterministic-luminance
+  (def frame (skia/create {:width 3 :height 1 :pixel-format :gray8}))
+  (skia/clear frame "F")
+  (skia/draw-rect frame 0 0 1 1 {:paint {:fill "F00" :anti-alias? false}})
+  (skia/draw-rect frame 1 0 1 1 {:paint {:fill "0F0" :anti-alias? false}})
+  (skia/draw-rect frame 2 0 1 1 {:paint {:fill "00F" :anti-alias? false}})
+  (let [observed @[(skia/sample-gray frame 0 0)
+                   (skia/sample-gray frame 1 0)
+                   (skia/sample-gray frame 2 0)]]
+    (is (deep= @[76 150 29] observed)
+        "RGB paints drawn into :gray8 use the documented luminance conversion")))
 
 (deftest unsupported-canvas-pixel-formats-fail-clearly
   (def observed
