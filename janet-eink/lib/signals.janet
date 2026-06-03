@@ -1,5 +1,3 @@
-# Small signal graph for Humble Janet UI experiments.
-#
 # Signals are explicit: callers read with `get`, write source cells with `set`,
 # derive values with `computed`, and tie redraw/effect work to signals with
 # `effect`/`dispose`.
