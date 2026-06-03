@@ -7,13 +7,18 @@
 (import ./element :as elem)
 (import ./nodes :as nodes)
 (import ./align :as align)
+(import ./clip :as clip)
 (import ./gap :as gap)
 (import ./grow :as grow)
+(import ./image :as image)
 (import ./label :as label)
 (import ./padding :as padding)
 (import ./rect :as rect)
 (import ./row-column :as row-column)
+(import ./size :as size)
 (import ./stack :as stack)
+(import ./translate :as translate)
+(import ./with-context :as with-context)
 (import ./util :as util)
 
 (var make nil)
@@ -36,14 +41,19 @@
   head)
 
 (register-builtin! align/align :align)
+(register-builtin! clip/clip :clip)
 (register-builtin! gap/gap :gap)
 (register-builtin! grow/grow :grow)
+(register-builtin! image/image :image)
 (register-builtin! label/label :label)
 (register-builtin! padding/padding :padding)
 (register-builtin! rect/rect :rect)
 (register-builtin! row-column/row :row)
 (register-builtin! row-column/column :column)
+(register-builtin! size/size :size)
 (register-builtin! stack/stack :stack)
+(register-builtin! translate/translate :translate)
+(register-builtin! with-context/with-context :with-context)
 
 (defn builtin-head?
   "Returns true when `head` is known to be a built-in element constructor."

@@ -10,6 +10,16 @@
 (def mid "80")
 (def light "C")
 
+(defn- dirname
+  [path]
+  (var i (- (length path) 1))
+  (while (and (>= i 0) (not= (get path i) (chr "/")))
+    (-- i))
+  (if (< i 0) "." (string/slice path 0 i)))
+
+(def demo-image-source
+  (string (dirname (os/realpath (dyn :current-file))) "/otter-dance-frame.png"))
+
 (defn swatch
   [paint width height]
   [ui/rect {:paint paint :radius [8 4]}
@@ -52,6 +62,26 @@
         [ui/gap {:height 30}]]]
       [swatch darker 70 30]]]]])
 
+(defn context-image-demo
+  []
+  [ui/with-context {:font-family "Noto Sans"
+                    :font-size 20
+                    :paint "0"}
+   [ui/rect {:paint [{:fill "F"} {:stroke "80" :width 1}] :radius [16 10]}
+    [ui/padding {:padding 16}
+     [ui/row {:gap 16 :align :center}
+      [ui/column {:gap 4}
+       [ui/label "size + clip + translate + image"]
+       [ui/label {:font-size 16 :paint "60"}
+        "context supplies label defaults"]]
+      [ui/size {:width 120 :height 72}
+       [ui/clip
+        [ui/translate {:dx -18 :dy -10}
+         [ui/image {:src demo-image-source
+                    :scale :content
+                    :x :left
+                    :y :top}]]]]]]]])
+
 (defn grayscale-column
   []
   [ui/column {:gap 8}
@@ -71,6 +101,7 @@
   [ui/column {:gap 24 :align :center}
    [overlay-card]
    [grow-demo]
+   [context-image-demo]
    [ui/row {:gap 36 :align :top}
     [grayscale-column]
     [grayscale-row]]])
