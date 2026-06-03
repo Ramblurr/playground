@@ -4,8 +4,10 @@
 (import ./ui/label :as label-node)
 (import ./ui/nodes :as nodes)
 (import ./ui/reconcile :as reconcile-node)
+(import ./ui/rect :as rect-node)
 
 (def label label-node/label)
+(def rect rect-node/rect)
 (def make reconcile-node/make)
 (def reconcile reconcile-node/reconcile)
 (def reconcile-many reconcile-node/reconcile-many)

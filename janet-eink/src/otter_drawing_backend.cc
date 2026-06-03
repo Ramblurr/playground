@@ -20,6 +20,7 @@
 #include "core/SkData.h"
 #include "core/SkImage.h"
 #include "core/SkRect.h"
+#include "core/SkRRect.h"
 #include "core/SkFont.h"
 #include "core/SkFontMgr.h"
 #include "core/SkFontMetrics.h"
@@ -504,6 +505,25 @@ bool draw_rounded_rect(RasterCanvas &canvas, float x, float y, float width, floa
     }
     const SkScalar r = std::max(0.0f, radius);
     canvas.sk_canvas().drawRoundRect(SkRect::MakeXYWH(x, y, width, height), r, r, skia_paint(canvas.pixel_format(), paint));
+    return true;
+}
+
+bool draw_rrect(RasterCanvas &canvas, float x, float y, float width, float height, const std::vector<float> &radii, const NormalizedPaint &paint) {
+    if (!positive(width) || !positive(height) || radii.size() != 8) {
+        return false;
+    }
+    SkVector corner_radii[4];
+    for (std::size_t i = 0; i < 4; ++i) {
+        const float rx = radii[i * 2];
+        const float ry = radii[(i * 2) + 1];
+        if (!std::isfinite(rx) || !std::isfinite(ry)) {
+            return false;
+        }
+        corner_radii[i] = SkVector::Make(std::max(0.0f, rx), std::max(0.0f, ry));
+    }
+    SkRRect rrect;
+    rrect.setRectRadii(SkRect::MakeXYWH(x, y, width, height), corner_radii);
+    canvas.sk_canvas().drawRRect(rrect, skia_paint(canvas.pixel_format(), paint));
     return true;
 }
 

@@ -220,6 +220,12 @@
     ((native-fn 'draw-rounded-rect) canvas x y w h radius p))
   canvas)
 
+(defn draw-rrect
+  [canvas x y w h radii opts]
+  (each p (draw-paints "skia/draw-rrect" opts)
+    ((native-fn 'draw-rrect) canvas x y w h radii p))
+  canvas)
+
 (defn- point-pair?
   [point]
   (and (or (= :array (type point)) (= :tuple (type point)))

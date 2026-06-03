@@ -145,6 +145,7 @@ const char *pixel_format_name(PixelFormat pixel_format);
 void clear(RasterCanvas &canvas, const NormalizedPaint &paint);
 bool draw_rect(RasterCanvas &canvas, float x, float y, float width, float height, const NormalizedPaint &paint);
 bool draw_rounded_rect(RasterCanvas &canvas, float x, float y, float width, float height, float radius, const NormalizedPaint &paint);
+bool draw_rrect(RasterCanvas &canvas, float x, float y, float width, float height, const std::vector<float> &radii, const NormalizedPaint &paint);
 bool draw_triangle(
     RasterCanvas &canvas,
     float x1,

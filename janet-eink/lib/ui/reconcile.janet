@@ -7,6 +7,7 @@
 (import ./element :as elem)
 (import ./nodes :as nodes)
 (import ./label :as label)
+(import ./rect :as rect)
 (import ./util :as util)
 
 (var make nil)
@@ -29,6 +30,7 @@
   head)
 
 (register-builtin! label/label :label)
+(register-builtin! rect/rect :rect)
 
 (defn builtin-head?
   "Returns true when `head` is known to be a built-in element constructor."

@@ -1,4 +1,4 @@
-# First UI application: one retained UI label rendered through Skia.
+# First UI application: a retained UI label on a rounded rect background.
 
 (import ../skia :as skia)
 (import ../ui :as ui)
@@ -6,10 +6,11 @@
 
 (defn view
   []
-  [ui/label {:font-family "Noto Sans"
-             :font-size 88
-             :paint "0"}
-   "Hello, world."])
+  [ui/rect {:paint "E" :radius [32 20 8 8 32 20 8 8]}
+   [ui/label {:font-family "Noto Sans"
+              :font-size 88
+              :paint "F00"}
+    "Hello, world."]])
 
 (defn draw
   "Draws the hello-world UI into an existing canvas."

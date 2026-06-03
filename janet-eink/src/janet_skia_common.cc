@@ -145,6 +145,42 @@ static Janet cfun_draw_rounded_rect(int32_t argc, Janet *argv) {
     return argv[0];
 }
 
+static std::vector<float> get_radii(Janet *argv, int32_t n) {
+    JanetView view = janet_getindexed(argv, n);
+    if (view.len != 8) {
+        janet_panic("rrect radii must be an array or tuple of 8 numbers");
+    }
+    std::vector<float> radii;
+    radii.reserve(8);
+    for (int32_t i = 0; i < view.len; ++i) {
+        if (!janet_checktype(view.items[i], JANET_NUMBER)) {
+            janet_panic("rrect radii must be an array or tuple of 8 numbers");
+        }
+        const double value = janet_unwrap_number(view.items[i]);
+        if (!std::isfinite(value)) {
+            janet_panic("rrect radii must be finite");
+        }
+        radii.push_back(static_cast<float>(value));
+    }
+    return radii;
+}
+
+static Janet cfun_draw_rrect(int32_t argc, Janet *argv) {
+    janet_fixarity(argc, 7);
+    otter::RasterCanvas *canvas = get_canvas(argv, 0);
+    if (!otter::draw_rrect(
+            *canvas,
+            static_cast<float>(janet_getnumber(argv, 1)),
+            static_cast<float>(janet_getnumber(argv, 2)),
+            static_cast<float>(janet_getnumber(argv, 3)),
+            static_cast<float>(janet_getnumber(argv, 4)),
+            get_radii(argv, 5),
+            get_paint(argv, 6))) {
+        janet_panic("draw-rrect requires a positive finite width and height and eight finite radii");
+    }
+    return argv[0];
+}
+
 static Janet cfun_draw_triangle(int32_t argc, Janet *argv) {
     janet_fixarity(argc, 8);
     otter::RasterCanvas *canvas = get_canvas(argv, 0);
@@ -416,6 +452,11 @@ static const JanetReg common_cfuns[] = {
         "draw-rounded-rect", cfun_draw_rounded_rect,
         "(skia/draw-rounded-rect canvas x y width height radius paint)\n\n"
         "Draw a rounded rectangle on a raster canvas."
+    },
+    {
+        "draw-rrect", cfun_draw_rrect,
+        "(skia/draw-rrect canvas x y width height radii paint)\n\n"
+        "Draw a rounded rectangle with per-corner radii on a raster canvas."
     },
     {
         "draw-triangle", cfun_draw_triangle,
