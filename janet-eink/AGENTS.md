@@ -174,3 +174,11 @@ Editor: Janet netrepl, not nREPL, at resolved `kobo-lan`:9365.
 - extra/ local repo reference material
     - janet-bundles.md how janet bundles work
     - janet-dir-structure.md how janet dir structure works
+
+## Multi-agent coordination
+
+- Assume other agents may work in this tree on separate tasks.
+- Avoid overlapping files when possible; when work overlaps, coordinate via `link_send`.
+- Expect `git status` and files you did not edit to change underneath you; do not revert or panic over others' work.
+- Before staging or committing, broadcast a lock with `link_send` so only one agent stages/commits at a time.
+- After committing, broadcast that you released the staging/commit lock.
