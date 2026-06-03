@@ -7,11 +7,50 @@
 (def darkest "20")
 (def darker "40")
 (def dark "60")
+(def mid "80")
+(def light "C")
 
 (defn swatch
   [paint width height]
   [ui/rect {:paint paint :radius [8 4]}
    [ui/gap {:width width :height height}]])
+
+(defn overlay-card
+  []
+  [ui/stack
+   [ui/rect {:paint "E" :radius [32 20]}
+    [ui/gap {:width 520 :height 150}]]
+   [ui/align {:x :center :y :center}
+    [ui/label {:font-family "Noto Sans"
+               :font-size 46
+               :paint "0"}
+     "stack + align"]]
+   [ui/align {:x :right :y :top :child-x :right :child-y :top}
+    [ui/rect {:paint "0" :radius [8 6]}
+     [ui/padding {:horizontal 12 :vertical 6}
+      [ui/label {:font-family "Noto Sans"
+                 :font-size 18
+                 :paint "F"}
+       "overlay"]]]]])
+
+(defn grow-demo
+  []
+  [ui/rect {:paint [{:fill "F"} {:stroke "80" :width 1}] :radius [16 10]}
+   [ui/padding {:padding 16}
+    [ui/column {:gap 10}
+     [ui/label {:font-family "Noto Sans"
+                :font-size 24
+                :paint "0"}
+      "ui/grow: leftover row space splits 1:2"]
+     [ui/row {:gap 8 :align :center}
+      [swatch darkest 70 30]
+      [ui/grow 1
+       [ui/rect {:paint light :radius [8 4]}
+        [ui/gap {:height 30}]]]
+      [ui/grow 2
+       [ui/rect {:paint mid :radius [8 4]}
+        [ui/gap {:height 30}]]]
+      [swatch darker 70 30]]]]])
 
 (defn grayscale-column
   []
@@ -29,15 +68,9 @@
 
 (defn view
   []
-  [ui/column {:gap 28 :align :center}
-   [ui/rect {:paint "E" :radius [32 20 8 8 32 20 8 8]}
-    [ui/padding {:horizontal 48 :vertical 32}
-     [ui/rect {:paint "F" :radius [18 12]}
-      [ui/padding {:left 28 :top 18 :right 28 :bottom 18}
-       [ui/label {:font-family "Noto Sans"
-                  :font-size 88
-                  :paint "F00"}
-        "Hello, world."]]]]]
+  [ui/column {:gap 24 :align :center}
+   [overlay-card]
+   [grow-demo]
    [ui/row {:gap 36 :align :top}
     [grayscale-column]
     [grayscale-row]]])

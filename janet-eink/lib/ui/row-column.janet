@@ -102,11 +102,9 @@
 (defn- grow-factor
   [axis child]
   (when (= :grow (get child :kind nil))
-    (let [factor (or (get child :factor nil)
-                     (get child :grow-factor nil)
-                     1)]
+    (let [factor (get child :factor 1)]
       (unless (and (= :number (type factor)) (> factor 0))
-        (error (string (axis-name axis) ": grow child factor must be positive, got " (type factor))))
+        (error (string (axis-name axis) ": grow child factor must be a positive number, got " factor)))
       factor)))
 
 (defn- push-hug-entry!
@@ -230,9 +228,9 @@
       :gap   number | function | markup tuple - inserted between children
       :align :top | :center | :bottom | number - vertical alignment
 
-  Non-grow children hug their natural width. Future `ui/grow` children consume
-  leftover width by positive grow factor. Row height is the max child height;
-  children draw with the full row height unless `:align` positions them within it."
+  Non-grow children hug their natural width. `ui/grow` children consume leftover
+  width by positive grow factor. Row height is the max child height; children
+  draw with the full row height unless `:align` positions them within it."
   [& args]
   (make-axis-node row-axis RowNode row args))
 
@@ -247,8 +245,8 @@
       :gap   number | function | markup tuple - inserted between children
       :align :left | :center | :right | number - horizontal alignment
 
-  Non-grow children hug their natural height. Future `ui/grow` children consume
-  leftover height by positive grow factor. Column width is the max child width;
-  children draw with the full column width unless `:align` positions them within it."
+  Non-grow children hug their natural height. `ui/grow` children consume leftover
+  height by positive grow factor. Column width is the max child width; children
+  draw with the full column width unless `:align` positions them within it."
   [& args]
   (make-axis-node column-axis ColumnNode column args))

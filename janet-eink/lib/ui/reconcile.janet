@@ -6,11 +6,14 @@
 
 (import ./element :as elem)
 (import ./nodes :as nodes)
-(import ./label :as label)
+(import ./align :as align)
 (import ./gap :as gap)
+(import ./grow :as grow)
+(import ./label :as label)
 (import ./padding :as padding)
-(import ./row-column :as row-column)
 (import ./rect :as rect)
+(import ./row-column :as row-column)
+(import ./stack :as stack)
 (import ./util :as util)
 
 (var make nil)
@@ -32,12 +35,15 @@
   (put builtin-heads head kind)
   head)
 
-(register-builtin! label/label :label)
+(register-builtin! align/align :align)
 (register-builtin! gap/gap :gap)
+(register-builtin! grow/grow :grow)
+(register-builtin! label/label :label)
 (register-builtin! padding/padding :padding)
+(register-builtin! rect/rect :rect)
 (register-builtin! row-column/row :row)
 (register-builtin! row-column/column :column)
-(register-builtin! rect/rect :rect)
+(register-builtin! stack/stack :stack)
 
 (defn builtin-head?
   "Returns true when `head` is known to be a built-in element constructor."
