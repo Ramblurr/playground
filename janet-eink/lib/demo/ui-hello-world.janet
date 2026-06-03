@@ -85,6 +85,43 @@
                     :x :left
                     :y :top}]]]]]]]])
 
+(defn grid-label
+  [paint text]
+  [ui/align {:x :center :y :center}
+   [ui/label {:font-family "Noto Sans"
+              :font-size 16
+              :paint paint}
+    text]])
+
+(defn grid-cell
+  [paint text]
+  [ui/rect {:paint paint :radius [8 4]}
+   [grid-label "0" text]])
+
+(defn grid-demo
+  []
+  [ui/rect {:paint [{:fill "F"} {:stroke "8" :width 1}] :radius [16 10]}
+   [ui/padding {:padding 16}
+    [ui/column {:gap 10}
+     [ui/label {:font-family "Noto Sans"
+                :font-size 24
+                :paint "0"}
+      "ui/grid: hug + stretch tracks, gaps, and colspan"]
+     [ui/size {:width 1000 :height 220}
+      [ui/grid {:cols [:hug {:stretch 1} :hug]
+                :rows [:hug {:stretch 1} :hug]
+                :col-gap 12
+                :row-gap 12}
+       [grid-cell light "hug"]
+       [grid-cell "E" "stretch col"]
+       [grid-cell light "hug"]
+       [ui/rect {:paint mid :radius [8 4] :col-span 2}
+        [grid-label "0" "col-span 2"]]
+       [grid-cell dark "right"]
+       [grid-cell darker "bottom"]
+       [grid-cell light "fills"]
+       [grid-cell darker "row"]]]]]])
+
 (defn grayscale-column
   []
   [ui/column {:gap 8}
@@ -104,6 +141,7 @@
   [ui/column {:gap 24 :align :center}
    [overlay-card]
    [grow-demo]
+   [grid-demo]
    [context-image-demo]
    [ui/row {:gap 36 :align :top}
     [grayscale-column]

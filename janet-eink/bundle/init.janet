@@ -27,6 +27,7 @@
   (bundle/add manifest "lib/ui/clip.janet" "otter/lib/ui/clip.janet")
   (bundle/add manifest "lib/ui/gap.janet" "otter/lib/ui/gap.janet")
   (bundle/add manifest "lib/ui/grow.janet" "otter/lib/ui/grow.janet")
+  (bundle/add manifest "lib/ui/grid.janet" "otter/lib/ui/grid.janet")
   (bundle/add manifest "lib/ui/image.janet" "otter/lib/ui/image.janet")
   (bundle/add manifest "lib/ui/label.janet" "otter/lib/ui/label.janet")
   (bundle/add manifest "lib/ui/padding.janet" "otter/lib/ui/padding.janet")
