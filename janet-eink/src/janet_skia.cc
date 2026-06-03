@@ -57,7 +57,11 @@ Dimensions framebuffer_dimensions() {
     return Dimensions{static_cast<int>(target_width), static_cast<int>(target_height)};
 }
 
-int present_canvas_to_fbink(const otter::GrayCanvas &canvas, bool flash) {
+int present_canvas_to_fbink(const otter::RasterCanvas &canvas, bool flash) {
+    if (canvas.pixel_format() != otter::PixelFormat::Gray8) {
+        janet_panicf("Kobo FBInk presenter currently requires :gray8 canvas, got :%s", otter::pixel_format_name(canvas.pixel_format()));
+    }
+
     FBInkConfig cfg;
     std::memset(&cfg, 0, sizeof(cfg));
     cfg.is_quiet = true;
@@ -80,7 +84,7 @@ int present_canvas_to_fbink(const otter::GrayCanvas &canvas, bool flash) {
     const size_t byte_count = static_cast<size_t>(canvas.width()) * static_cast<size_t>(canvas.height());
     if (pixels == nullptr || byte_count == 0) {
         fbink_close(fbfd);
-        janet_panic("Skia gray8 canvas has no pixels to present");
+        janet_panic("Skia raster canvas has no pixels to present");
     }
 
     rv = fbink_print_raw_data(
@@ -113,7 +117,7 @@ static Janet cfun_framebuffer_size(int32_t argc, Janet *argv) {
 
 static Janet cfun_present(int32_t argc, Janet *argv) {
     janet_arity(argc, 1, 2);
-    otter::GrayCanvas *canvas = otter::binding::get_canvas(argv, 0);
+    otter::RasterCanvas *canvas = otter::binding::get_canvas(argv, 0);
     const bool flash = argc >= 2 ? janet_getboolean(argv, 1) : true;
     return janet_wrap_integer(present_canvas_to_fbink(*canvas, flash));
 }

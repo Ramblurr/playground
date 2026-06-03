@@ -52,11 +52,15 @@ SkColor gray_color(const NormalizedPaint &paint) {
     return SkColorSetARGB(unit_to_byte(paint.a), gray, gray, gray);
 }
 
-SkPaint skia_paint(const NormalizedPaint &normalized) {
+SkColor rgba_color(const NormalizedPaint &paint) {
+    return SkColorSetARGB(unit_to_byte(paint.a), unit_to_byte(paint.r), unit_to_byte(paint.g), unit_to_byte(paint.b));
+}
+
+SkPaint skia_paint(PixelFormat pixel_format, const NormalizedPaint &normalized) {
     SkPaint paint;
     paint.setAntiAlias(normalized.anti_alias);
     paint.setDither(normalized.skia_dither);
-    paint.setColor(gray_color(normalized));
+    paint.setColor(pixel_format == PixelFormat::Gray8 ? gray_color(normalized) : rgba_color(normalized));
     paint.setStyle(normalized.style == PaintStyle::Stroke ? SkPaint::kStroke_Style : SkPaint::kFill_Style);
     paint.setStrokeWidth(normalized.stroke_width);
     switch (normalized.cap) {
@@ -353,13 +357,26 @@ private:
 
 }  // namespace
 
-bool valid_dimensions(int width, int height) {
+std::size_t bytes_per_pixel(PixelFormat pixel_format) {
+    return pixel_format == PixelFormat::Rgba32 ? 4U : 1U;
+}
+
+bool valid_dimensions(int width, int height, PixelFormat pixel_format) {
     if (width <= 0 || height <= 0) {
         return false;
     }
-    const std::size_t row_bytes = static_cast<std::size_t>(width);
+    const std::size_t row_bytes = static_cast<std::size_t>(width) * bytes_per_pixel(pixel_format);
     const std::size_t rows = static_cast<std::size_t>(height);
-    return rows <= std::numeric_limits<std::size_t>::max() / row_bytes;
+    return width <= std::numeric_limits<int>::max() / static_cast<int>(bytes_per_pixel(pixel_format)) &&
+           rows <= std::numeric_limits<std::size_t>::max() / row_bytes;
+}
+
+const char *pixel_format_name(PixelFormat pixel_format) {
+    switch (pixel_format) {
+        case PixelFormat::Rgba32: return "rgba32";
+        case PixelFormat::Gray8:
+        default: return "gray8";
+    }
 }
 
 struct TextState {
@@ -368,21 +385,19 @@ struct TextState {
     std::string default_family;
 };
 
-GrayCanvas::GrayCanvas() = default;
+RasterCanvas::RasterCanvas() = default;
 
-GrayCanvas::~GrayCanvas() = default;
+RasterCanvas::~RasterCanvas() = default;
 
-bool GrayCanvas::reset(int width, int height, const char *font_dir, const char *default_family) {
-    if (!valid_dimensions(width, height)) {
+bool RasterCanvas::reset(int width, int height, PixelFormat pixel_format, const char *font_dir, const char *default_family) {
+    if (!valid_dimensions(width, height, pixel_format)) {
         return false;
     }
 
-    const SkImageInfo info = SkImageInfo::Make(
-        width,
-        height,
-        kGray_8_SkColorType,
-        kOpaque_SkAlphaType);
-    const std::size_t row_bytes = static_cast<std::size_t>(width);
+    const SkImageInfo info = pixel_format == PixelFormat::Rgba32
+        ? SkImageInfo::Make(width, height, kN32_SkColorType, kPremul_SkAlphaType)
+        : SkImageInfo::Make(width, height, kGray_8_SkColorType, kOpaque_SkAlphaType);
+    const std::size_t row_bytes = static_cast<std::size_t>(width) * bytes_per_pixel(pixel_format);
 
     bitmap_.reset();
     canvas_.reset();
@@ -390,6 +405,7 @@ bool GrayCanvas::reset(int width, int height, const char *font_dir, const char *
     if (!bitmap_.tryAllocPixels(info, row_bytes)) {
         return false;
     }
+    pixel_format_ = pixel_format;
     canvas_ = std::make_unique<SkCanvas>(bitmap_);
 
     if (font_dir != nullptr && font_dir[0] != '\0') {
@@ -415,11 +431,11 @@ bool GrayCanvas::reset(int width, int height, const char *font_dir, const char *
     return true;
 }
 
-SkCanvas &GrayCanvas::sk_canvas() {
+SkCanvas &RasterCanvas::sk_canvas() {
     return *canvas_;
 }
 
-TextState *GrayCanvas::text_state() {
+TextState *RasterCanvas::text_state() {
     return text_.get();
 }
 
@@ -458,7 +474,12 @@ bool RasterImage::load_png(const char *path) {
     return true;
 }
 
-void clear(GrayCanvas &canvas, const NormalizedPaint &paint) {
+void clear(RasterCanvas &canvas, const NormalizedPaint &paint) {
+    if (canvas.pixel_format() == PixelFormat::Rgba32) {
+        canvas.sk_canvas().clear(rgba_color(paint));
+        return;
+    }
+
     SkBitmap &bitmap = canvas.bitmap();
     const int width = bitmap.width();
     const int height = bitmap.height();
@@ -469,25 +490,25 @@ void clear(GrayCanvas &canvas, const NormalizedPaint &paint) {
     }
 }
 
-bool draw_rect(GrayCanvas &canvas, float x, float y, float width, float height, const NormalizedPaint &paint) {
+bool draw_rect(RasterCanvas &canvas, float x, float y, float width, float height, const NormalizedPaint &paint) {
     if (!positive(width) || !positive(height)) {
         return false;
     }
-    canvas.sk_canvas().drawRect(SkRect::MakeXYWH(x, y, width, height), skia_paint(paint));
+    canvas.sk_canvas().drawRect(SkRect::MakeXYWH(x, y, width, height), skia_paint(canvas.pixel_format(), paint));
     return true;
 }
 
-bool draw_rounded_rect(GrayCanvas &canvas, float x, float y, float width, float height, float radius, const NormalizedPaint &paint) {
+bool draw_rounded_rect(RasterCanvas &canvas, float x, float y, float width, float height, float radius, const NormalizedPaint &paint) {
     if (!positive(width) || !positive(height) || !std::isfinite(radius)) {
         return false;
     }
     const SkScalar r = std::max(0.0f, radius);
-    canvas.sk_canvas().drawRoundRect(SkRect::MakeXYWH(x, y, width, height), r, r, skia_paint(paint));
+    canvas.sk_canvas().drawRoundRect(SkRect::MakeXYWH(x, y, width, height), r, r, skia_paint(canvas.pixel_format(), paint));
     return true;
 }
 
 bool draw_triangle(
-    GrayCanvas &canvas,
+    RasterCanvas &canvas,
     float x1,
     float y1,
     float x2,
@@ -505,24 +526,24 @@ bool draw_triangle(
     builder.lineTo(x3, y3);
     builder.close();
 
-    canvas.sk_canvas().drawPath(builder.detach(), skia_paint(paint));
+    canvas.sk_canvas().drawPath(builder.detach(), skia_paint(canvas.pixel_format(), paint));
     return true;
 }
 
-bool draw_circle(GrayCanvas &canvas, float cx, float cy, float radius, const NormalizedPaint &paint) {
+bool draw_circle(RasterCanvas &canvas, float cx, float cy, float radius, const NormalizedPaint &paint) {
     if (!std::isfinite(cx) || !std::isfinite(cy) || !positive(radius)) {
         return false;
     }
-    canvas.sk_canvas().drawCircle(cx, cy, radius, skia_paint(paint));
+    canvas.sk_canvas().drawCircle(cx, cy, radius, skia_paint(canvas.pixel_format(), paint));
     return true;
 }
 
-bool save(GrayCanvas &canvas) {
+bool save(RasterCanvas &canvas) {
     canvas.sk_canvas().save();
     return true;
 }
 
-bool restore(GrayCanvas &canvas) {
+bool restore(RasterCanvas &canvas) {
     if (canvas.sk_canvas().getSaveCount() <= 1) {
         return false;
     }
@@ -530,7 +551,7 @@ bool restore(GrayCanvas &canvas) {
     return true;
 }
 
-bool translate(GrayCanvas &canvas, float x, float y) {
+bool translate(RasterCanvas &canvas, float x, float y) {
     if (!finite_pair(x, y)) {
         return false;
     }
@@ -538,7 +559,7 @@ bool translate(GrayCanvas &canvas, float x, float y) {
     return true;
 }
 
-bool scale(GrayCanvas &canvas, float sx, float sy) {
+bool scale(RasterCanvas &canvas, float sx, float sy) {
     if (!finite_pair(sx, sy)) {
         return false;
     }
@@ -546,7 +567,7 @@ bool scale(GrayCanvas &canvas, float sx, float sy) {
     return true;
 }
 
-bool clip_rect(GrayCanvas &canvas, float x, float y, float width, float height) {
+bool clip_rect(RasterCanvas &canvas, float x, float y, float width, float height) {
     if (!finite_pair(x, y) || !positive(width) || !positive(height)) {
         return false;
     }
@@ -554,15 +575,15 @@ bool clip_rect(GrayCanvas &canvas, float x, float y, float width, float height) 
     return true;
 }
 
-bool draw_line(GrayCanvas &canvas, float x1, float y1, float x2, float y2, const NormalizedPaint &paint) {
+bool draw_line(RasterCanvas &canvas, float x1, float y1, float x2, float y2, const NormalizedPaint &paint) {
     if (!finite_pair(x1, y1) || !finite_pair(x2, y2) || !positive(paint.stroke_width)) {
         return false;
     }
-    canvas.sk_canvas().drawLine(x1, y1, x2, y2, skia_paint(paint));
+    canvas.sk_canvas().drawLine(x1, y1, x2, y2, skia_paint(canvas.pixel_format(), paint));
     return true;
 }
 
-bool draw_path(GrayCanvas &canvas, const std::vector<float> &coords, bool closed, const NormalizedPaint &paint) {
+bool draw_path(RasterCanvas &canvas, const std::vector<float> &coords, bool closed, const NormalizedPaint &paint) {
     if (coords.size() < 4 || coords.size() % 2 != 0) {
         return false;
     }
@@ -584,11 +605,11 @@ bool draw_path(GrayCanvas &canvas, const std::vector<float> &coords, bool closed
         builder.close();
     }
 
-    canvas.sk_canvas().drawPath(builder.detach(), skia_paint(paint));
+    canvas.sk_canvas().drawPath(builder.detach(), skia_paint(canvas.pixel_format(), paint));
     return true;
 }
 
-bool draw_image(GrayCanvas &canvas, const RasterImage &image, float src_x, float src_y, float src_width, float src_height, float dst_x, float dst_y, float dst_width, float dst_height, float alpha) {
+bool draw_image(RasterCanvas &canvas, const RasterImage &image, float src_x, float src_y, float src_width, float src_height, float dst_x, float dst_y, float dst_width, float dst_height, float alpha) {
     if (!positive(src_width) || !positive(src_height) || !positive(dst_width) || !positive(dst_height) || !finite_pair(src_x, src_y) || !finite_pair(dst_x, dst_y) || !std::isfinite(alpha)) {
         return false;
     }
@@ -613,7 +634,7 @@ bool draw_image(GrayCanvas &canvas, const RasterImage &image, float src_x, float
     return true;
 }
 
-sk_sp<SkTypeface> select_typeface(GrayCanvas &canvas, const FontOptions &options, std::string *selected_family_out) {
+sk_sp<SkTypeface> select_typeface(RasterCanvas &canvas, const FontOptions &options, std::string *selected_family_out) {
     TextState *text = canvas.text_state();
     if (text == nullptr || !text->font_mgr) {
         return nullptr;
@@ -652,7 +673,7 @@ float cap_height_for_font(const SkFont &font) {
     return std::isfinite(cap_height) ? std::ceil(cap_height) : 0.0f;
 }
 
-bool shape_text(GrayCanvas &canvas, const std::string &utf8, const FontOptions &font_options, const std::string &features_string, TextLine *line, std::string *error_message) {
+bool shape_text(RasterCanvas &canvas, const std::string &utf8, const FontOptions &font_options, const std::string &features_string, TextLine *line, std::string *error_message) {
     if (line == nullptr || !positive(font_options.size)) {
         if (error_message != nullptr) {
             *error_message = "shape-text requires a positive font size";
@@ -738,47 +759,79 @@ bool shape_text(GrayCanvas &canvas, const std::string &utf8, const FontOptions &
     return true;
 }
 
-bool draw_text_line(GrayCanvas &canvas, const TextLine &line, float x, float y, const NormalizedPaint &paint) {
+bool draw_text_line(RasterCanvas &canvas, const TextLine &line, float x, float y, const NormalizedPaint &paint) {
     if (!finite_pair(x, y) || !line.blob) {
         return false;
     }
-    canvas.sk_canvas().drawTextBlob(line.blob, x, y + line.metrics.height, skia_paint(paint));
+    canvas.sk_canvas().drawTextBlob(line.blob, x, y + line.metrics.height, skia_paint(canvas.pixel_format(), paint));
     return true;
 }
 
-std::uint8_t sample_gray(const GrayCanvas &canvas, int x, int y) {
+std::uint8_t sample_gray(const RasterCanvas &canvas, int x, int y) {
     const SkBitmap &bitmap = canvas.bitmap();
     if (x < 0 || y < 0 || x >= bitmap.width() || y >= bitmap.height()) {
         return 0;
+    }
+    if (canvas.pixel_format() == PixelFormat::Rgba32) {
+        const SkColor color = bitmap.getColor(x, y);
+        const float gray = (0.299f * static_cast<float>(SkColorGetR(color))) +
+                           (0.587f * static_cast<float>(SkColorGetG(color))) +
+                           (0.114f * static_cast<float>(SkColorGetB(color)));
+        return static_cast<std::uint8_t>(std::clamp(std::lround(gray), 0L, 255L));
     }
     const std::uint8_t *row = static_cast<const std::uint8_t *>(bitmap.getAddr(0, y));
     return row[x];
 }
 
-GrayStats compute_stats(const GrayCanvas &canvas) {
+RgbaPixel sample_rgba(const RasterCanvas &canvas, int x, int y) {
     const SkBitmap &bitmap = canvas.bitmap();
-    GrayStats stats;
+    if (x < 0 || y < 0 || x >= bitmap.width() || y >= bitmap.height()) {
+        return {};
+    }
+    if (canvas.pixel_format() == PixelFormat::Gray8) {
+        const std::uint8_t gray = sample_gray(canvas, x, y);
+        return {gray, gray, gray, 255};
+    }
+    const SkColor color = bitmap.getColor(x, y);
+    return {
+        static_cast<std::uint8_t>(SkColorGetR(color)),
+        static_cast<std::uint8_t>(SkColorGetG(color)),
+        static_cast<std::uint8_t>(SkColorGetB(color)),
+        static_cast<std::uint8_t>(SkColorGetA(color)),
+    };
+}
+
+CanvasStats compute_stats(const RasterCanvas &canvas) {
+    const SkBitmap &bitmap = canvas.bitmap();
+    CanvasStats stats;
     stats.width = bitmap.width();
     stats.height = bitmap.height();
+    stats.pixel_format = canvas.pixel_format();
     stats.min_gray = 255;
     stats.max_gray = 0;
     stats.checksum = kFnvOffset;
 
     bool seen[256] = {false};
     for (int y = 0; y < stats.height; ++y) {
-        const std::uint8_t *row = static_cast<const std::uint8_t *>(bitmap.getAddr(0, y));
         for (int x = 0; x < stats.width; ++x) {
-            const std::uint8_t gray = row[x];
+            const RgbaPixel rgba = sample_rgba(canvas, x, y);
+            const std::uint8_t gray = sample_gray(canvas, x, y);
             stats.min_gray = std::min(stats.min_gray, static_cast<int>(gray));
             stats.max_gray = std::max(stats.max_gray, static_cast<int>(gray));
             if (!seen[gray]) {
                 seen[gray] = true;
                 ++stats.gray_shades;
             }
-            if (gray != 255) {
+            if (rgba.r != 255 || rgba.g != 255 || rgba.b != 255 || rgba.a != 255) {
                 ++stats.non_white_pixels;
             }
-            stats.checksum ^= gray;
+            stats.checksum ^= rgba.r;
+            stats.checksum *= kFnvPrime;
+            stats.checksum ^= rgba.g;
+            stats.checksum *= kFnvPrime;
+            stats.checksum ^= rgba.b;
+            stats.checksum *= kFnvPrime;
+            stats.checksum ^= rgba.a;
             stats.checksum *= kFnvPrime;
         }
     }
@@ -791,21 +844,19 @@ GrayStats compute_stats(const GrayCanvas &canvas) {
     return stats;
 }
 
-
-void gray8_to_rgba32(const GrayCanvas &canvas, std::vector<std::uint8_t> *rgba) {
+void canvas_to_rgba32(const RasterCanvas &canvas, std::vector<std::uint8_t> *rgba) {
     const int width = canvas.width();
     const int height = canvas.height();
     rgba->assign(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4U, 0);
 
     for (int y = 0; y < height; ++y) {
-        const std::uint8_t *src = static_cast<const std::uint8_t *>(canvas.bitmap().getAddr(0, y));
         std::uint8_t *dst = rgba->data() + static_cast<std::size_t>(y) * static_cast<std::size_t>(width) * 4U;
         for (int x = 0; x < width; ++x) {
-            const std::uint8_t gray = src[x];
-            dst[x * 4 + 0] = gray;
-            dst[x * 4 + 1] = gray;
-            dst[x * 4 + 2] = gray;
-            dst[x * 4 + 3] = 255;
+            const RgbaPixel pixel = sample_rgba(canvas, x, y);
+            dst[x * 4 + 0] = pixel.r;
+            dst[x * 4 + 1] = pixel.g;
+            dst[x * 4 + 2] = pixel.b;
+            dst[x * 4 + 3] = pixel.a;
         }
     }
 }

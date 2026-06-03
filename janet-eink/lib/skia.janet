@@ -123,26 +123,27 @@
   (platform/screen-size))
 
 (defn- create-native
-  [width height font-dir default-family]
+  [width height pixel-format font-dir default-family]
   (if font-dir
-    ((native-fn 'create) width height font-dir default-family)
-    ((native-fn 'create) width height)))
+    ((native-fn 'create) width height pixel-format font-dir default-family)
+    ((native-fn 'create) width height pixel-format)))
 
 (defn create
   [& args]
   (case (length args)
     0 (do
         (def size (screen-size))
-        (create-native (get size :width) (get size :height) (default-font-dir) "Noto Sans"))
+        (create-native (get size :width) (get size :height) (get size :pixel-format :gray8) (default-font-dir) "Noto Sans"))
     1 (do
         (def opts (get args 0))
         (unless (or (= :table (type opts)) (= :struct (type opts)))
           (error "skia/create with one argument expects an options table"))
         (create-native (get opts :width)
                        (get opts :height)
+                       (get opts :pixel-format :gray8)
                        (font-dir-value opts)
                        (family-name (get opts :font :sans))))
-    2 (create-native (get args 0) (get args 1) (default-font-dir) "Noto Sans")
+    2 (create-native (get args 0) (get args 1) :gray8 (default-font-dir) "Noto Sans")
     (error "skia/create expects zero args, width/height, or an options table")))
 
 (defn- dict?
@@ -191,6 +192,14 @@
 (defn stats
   [canvas]
   ((native-fn 'stats) canvas))
+
+(defn canvas-info
+  [canvas]
+  ((native-fn 'canvas-info) canvas))
+
+(defn pixel-format
+  [canvas]
+  (get (canvas-info canvas) :pixel-format))
 
 (defn width
   [canvas]
@@ -357,6 +366,10 @@
 (defn sample-gray
   [canvas x y]
   ((native-fn 'sample-gray) canvas x y))
+
+(defn sample-rgba
+  [canvas x y]
+  ((native-fn 'sample-rgba) canvas x y))
 
 (defn present
   [canvas &opt options]

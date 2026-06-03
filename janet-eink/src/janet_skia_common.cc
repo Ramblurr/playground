@@ -12,8 +12,8 @@ namespace {
 
 static int canvas_gc(void *p, size_t s) {
     (void) s;
-    auto *canvas = static_cast<otter::GrayCanvas *>(p);
-    canvas->~GrayCanvas();
+    auto *canvas = static_cast<otter::RasterCanvas *>(p);
+    canvas->~RasterCanvas();
     return 0;
 }
 
@@ -66,32 +66,57 @@ static otter::TextLine *get_text_line(Janet *argv, int32_t n) {
     return static_cast<otter::TextLine *>(janet_getabstract(argv, n, &text_line_type));
 }
 
+static bool keyword_arg_equals(Janet value, const char *expected) {
+    return janet_checktype(value, JANET_KEYWORD) && janet_cstrcmp(janet_unwrap_keyword(value), expected) == 0;
+}
+
+static otter::PixelFormat get_pixel_format_value(Janet value) {
+    if (keyword_arg_equals(value, "gray8")) {
+        return otter::PixelFormat::Gray8;
+    }
+    if (keyword_arg_equals(value, "rgba32")) {
+        return otter::PixelFormat::Rgba32;
+    }
+    janet_panic("pixel-format must be :gray8 or :rgba32");
+}
+
+static Janet pixel_format_keyword(otter::PixelFormat pixel_format) {
+    return janet_ckeywordv(otter::pixel_format_name(pixel_format));
+}
+
 static Janet cfun_create(int32_t argc, Janet *argv) {
     const Dimensions dimensions = get_dimensions(argc, argv);
-    const char *font_dir = argc >= 3 && !janet_checktype(argv[2], JANET_NIL) ? janet_getcstring(argv, 2) : nullptr;
-    const char *default_family = argc >= 4 && !janet_checktype(argv[3], JANET_NIL) ? janet_getcstring(argv, 3) : nullptr;
-    void *memory = janet_abstract(&canvas_type, sizeof(otter::GrayCanvas));
-    auto *canvas = new (memory) otter::GrayCanvas();
-    if (!canvas->reset(dimensions.width, dimensions.height, font_dir, default_family)) {
-        canvas->~GrayCanvas();
-        if (font_dir != nullptr) {
-            janet_panicf("Skia gray8 canvas allocation or font setup failed for dimensions %dx%d and font dir %s", dimensions.width, dimensions.height, font_dir);
+    otter::PixelFormat pixel_format = otter::PixelFormat::Gray8;
+    int32_t font_arg = 2;
+    if (argc >= 3 && (janet_checktype(argv[2], JANET_KEYWORD) || janet_checktype(argv[2], JANET_NIL))) {
+        if (!janet_checktype(argv[2], JANET_NIL)) {
+            pixel_format = get_pixel_format_value(argv[2]);
         }
-        janet_panicf("Skia gray8 canvas allocation failed for dimensions: %dx%d", dimensions.width, dimensions.height);
+        font_arg = 3;
+    }
+    const char *font_dir = argc > font_arg && !janet_checktype(argv[font_arg], JANET_NIL) ? janet_getcstring(argv, font_arg) : nullptr;
+    const char *default_family = argc > font_arg + 1 && !janet_checktype(argv[font_arg + 1], JANET_NIL) ? janet_getcstring(argv, font_arg + 1) : nullptr;
+    void *memory = janet_abstract(&canvas_type, sizeof(otter::RasterCanvas));
+    auto *canvas = new (memory) otter::RasterCanvas();
+    if (!canvas->reset(dimensions.width, dimensions.height, pixel_format, font_dir, default_family)) {
+        if (font_dir != nullptr) {
+            janet_panicf("Skia raster canvas allocation or font setup failed for %s dimensions %dx%d and font dir %s", otter::pixel_format_name(pixel_format), dimensions.width, dimensions.height, font_dir);
+        }
+        janet_panicf("Skia raster canvas allocation failed for %s dimensions: %dx%d", otter::pixel_format_name(pixel_format), dimensions.width, dimensions.height);
     }
     return janet_wrap_abstract(canvas);
 }
 
 static Janet cfun_clear(int32_t argc, Janet *argv) {
     janet_fixarity(argc, 2);
-    otter::GrayCanvas *canvas = get_canvas(argv, 0);
+    otter::RasterCanvas *canvas = get_canvas(argv, 0);
     otter::clear(*canvas, get_paint(argv, 1));
     return argv[0];
 }
 
 static Janet cfun_draw_rect(int32_t argc, Janet *argv) {
     janet_fixarity(argc, 6);
-    otter::GrayCanvas *canvas = get_canvas(argv, 0);
+    otter::RasterCanvas *canvas = get_canvas(argv, 0);
     if (!otter::draw_rect(
             *canvas,
             static_cast<float>(janet_getnumber(argv, 1)),
@@ -106,7 +131,7 @@ static Janet cfun_draw_rect(int32_t argc, Janet *argv) {
 
 static Janet cfun_draw_rounded_rect(int32_t argc, Janet *argv) {
     janet_fixarity(argc, 7);
-    otter::GrayCanvas *canvas = get_canvas(argv, 0);
+    otter::RasterCanvas *canvas = get_canvas(argv, 0);
     if (!otter::draw_rounded_rect(
             *canvas,
             static_cast<float>(janet_getnumber(argv, 1)),
@@ -122,7 +147,7 @@ static Janet cfun_draw_rounded_rect(int32_t argc, Janet *argv) {
 
 static Janet cfun_draw_triangle(int32_t argc, Janet *argv) {
     janet_fixarity(argc, 8);
-    otter::GrayCanvas *canvas = get_canvas(argv, 0);
+    otter::RasterCanvas *canvas = get_canvas(argv, 0);
     if (!otter::draw_triangle(
             *canvas,
             static_cast<float>(janet_getnumber(argv, 1)),
@@ -139,7 +164,7 @@ static Janet cfun_draw_triangle(int32_t argc, Janet *argv) {
 
 static Janet cfun_draw_circle(int32_t argc, Janet *argv) {
     janet_fixarity(argc, 5);
-    otter::GrayCanvas *canvas = get_canvas(argv, 0);
+    otter::RasterCanvas *canvas = get_canvas(argv, 0);
     if (!otter::draw_circle(
             *canvas,
             static_cast<float>(janet_getnumber(argv, 1)),
@@ -153,14 +178,14 @@ static Janet cfun_draw_circle(int32_t argc, Janet *argv) {
 
 static Janet cfun_save(int32_t argc, Janet *argv) {
     janet_fixarity(argc, 1);
-    otter::GrayCanvas *canvas = get_canvas(argv, 0);
+    otter::RasterCanvas *canvas = get_canvas(argv, 0);
     otter::save(*canvas);
     return argv[0];
 }
 
 static Janet cfun_restore(int32_t argc, Janet *argv) {
     janet_fixarity(argc, 1);
-    otter::GrayCanvas *canvas = get_canvas(argv, 0);
+    otter::RasterCanvas *canvas = get_canvas(argv, 0);
     if (!otter::restore(*canvas)) {
         janet_panic("cannot restore canvas state below the base save count");
     }
@@ -169,7 +194,7 @@ static Janet cfun_restore(int32_t argc, Janet *argv) {
 
 static Janet cfun_translate(int32_t argc, Janet *argv) {
     janet_fixarity(argc, 3);
-    otter::GrayCanvas *canvas = get_canvas(argv, 0);
+    otter::RasterCanvas *canvas = get_canvas(argv, 0);
     if (!otter::translate(*canvas, static_cast<float>(janet_getnumber(argv, 1)), static_cast<float>(janet_getnumber(argv, 2)))) {
         janet_panic("translate requires finite x and y offsets");
     }
@@ -178,7 +203,7 @@ static Janet cfun_translate(int32_t argc, Janet *argv) {
 
 static Janet cfun_scale(int32_t argc, Janet *argv) {
     janet_fixarity(argc, 3);
-    otter::GrayCanvas *canvas = get_canvas(argv, 0);
+    otter::RasterCanvas *canvas = get_canvas(argv, 0);
     if (!otter::scale(*canvas, static_cast<float>(janet_getnumber(argv, 1)), static_cast<float>(janet_getnumber(argv, 2)))) {
         janet_panic("scale requires finite sx and sy values");
     }
@@ -187,7 +212,7 @@ static Janet cfun_scale(int32_t argc, Janet *argv) {
 
 static Janet cfun_clip_rect(int32_t argc, Janet *argv) {
     janet_fixarity(argc, 5);
-    otter::GrayCanvas *canvas = get_canvas(argv, 0);
+    otter::RasterCanvas *canvas = get_canvas(argv, 0);
     if (!otter::clip_rect(
             *canvas,
             static_cast<float>(janet_getnumber(argv, 1)),
@@ -201,7 +226,7 @@ static Janet cfun_clip_rect(int32_t argc, Janet *argv) {
 
 static Janet cfun_draw_line(int32_t argc, Janet *argv) {
     janet_fixarity(argc, 6);
-    otter::GrayCanvas *canvas = get_canvas(argv, 0);
+    otter::RasterCanvas *canvas = get_canvas(argv, 0);
     if (!otter::draw_line(
             *canvas,
             static_cast<float>(janet_getnumber(argv, 1)),
@@ -216,7 +241,7 @@ static Janet cfun_draw_line(int32_t argc, Janet *argv) {
 
 static Janet cfun_draw_path(int32_t argc, Janet *argv) {
     janet_fixarity(argc, 4);
-    otter::GrayCanvas *canvas = get_canvas(argv, 0);
+    otter::RasterCanvas *canvas = get_canvas(argv, 0);
     JanetView view = janet_getindexed(argv, 1);
     std::vector<float> coords;
     coords.reserve(static_cast<std::size_t>(view.len));
@@ -253,7 +278,7 @@ static Janet cfun_image_height(int32_t argc, Janet *argv) {
 
 static Janet cfun_draw_image(int32_t argc, Janet *argv) {
     janet_fixarity(argc, 11);
-    otter::GrayCanvas *canvas = get_canvas(argv, 0);
+    otter::RasterCanvas *canvas = get_canvas(argv, 0);
     otter::RasterImage *image = get_image(argv, 1);
     if (!otter::draw_image(
             *canvas,
@@ -274,7 +299,7 @@ static Janet cfun_draw_image(int32_t argc, Janet *argv) {
 
 static Janet cfun_sample_gray(int32_t argc, Janet *argv) {
     janet_fixarity(argc, 3);
-    otter::GrayCanvas *canvas = get_canvas(argv, 0);
+    otter::RasterCanvas *canvas = get_canvas(argv, 0);
     const int x = janet_getinteger(argv, 1);
     const int y = janet_getinteger(argv, 2);
     if (x < 0 || y < 0 || x >= canvas->width() || y >= canvas->height()) {
@@ -283,9 +308,39 @@ static Janet cfun_sample_gray(int32_t argc, Janet *argv) {
     return janet_wrap_integer(otter::sample_gray(*canvas, x, y));
 }
 
+Janet make_rgba_table(const otter::RgbaPixel &pixel) {
+    JanetTable *table = janet_table(4);
+    janet_table_put(table, janet_ckeywordv("r"), janet_wrap_integer(pixel.r));
+    janet_table_put(table, janet_ckeywordv("g"), janet_wrap_integer(pixel.g));
+    janet_table_put(table, janet_ckeywordv("b"), janet_wrap_integer(pixel.b));
+    janet_table_put(table, janet_ckeywordv("a"), janet_wrap_integer(pixel.a));
+    return janet_wrap_table(table);
+}
+
+static Janet cfun_sample_rgba(int32_t argc, Janet *argv) {
+    janet_fixarity(argc, 3);
+    otter::RasterCanvas *canvas = get_canvas(argv, 0);
+    const int x = janet_getinteger(argv, 1);
+    const int y = janet_getinteger(argv, 2);
+    if (x < 0 || y < 0 || x >= canvas->width() || y >= canvas->height()) {
+        janet_panicf("sample-rgba coordinates out of bounds: %d,%d for %dx%d", x, y, canvas->width(), canvas->height());
+    }
+    return make_rgba_table(otter::sample_rgba(*canvas, x, y));
+}
+
+static Janet cfun_canvas_info(int32_t argc, Janet *argv) {
+    janet_fixarity(argc, 1);
+    otter::RasterCanvas *canvas = get_canvas(argv, 0);
+    JanetTable *table = janet_table(3);
+    janet_table_put(table, janet_ckeywordv("width"), janet_wrap_integer(canvas->width()));
+    janet_table_put(table, janet_ckeywordv("height"), janet_wrap_integer(canvas->height()));
+    janet_table_put(table, janet_ckeywordv("pixel-format"), pixel_format_keyword(canvas->pixel_format()));
+    return janet_wrap_table(table);
+}
+
 static Janet cfun_stats(int32_t argc, Janet *argv) {
     janet_fixarity(argc, 1);
-    otter::GrayCanvas *canvas = get_canvas(argv, 0);
+    otter::RasterCanvas *canvas = get_canvas(argv, 0);
     return make_stats_table(otter::compute_stats(*canvas));
 }
 
@@ -303,7 +358,7 @@ std::string get_text_string(Janet *argv, int32_t n) {
 
 static Janet cfun_shape_text(int32_t argc, Janet *argv) {
     janet_fixarity(argc, 8);
-    otter::GrayCanvas *canvas = get_canvas(argv, 0);
+    otter::RasterCanvas *canvas = get_canvas(argv, 0);
     const std::string text = get_text_string(argv, 1);
     otter::FontOptions options;
     const char *family = janet_getcstring(argv, 2);
@@ -331,7 +386,7 @@ static Janet cfun_text_line_metrics(int32_t argc, Janet *argv) {
 
 static Janet cfun_draw_text_line(int32_t argc, Janet *argv) {
     janet_fixarity(argc, 5);
-    otter::GrayCanvas *canvas = get_canvas(argv, 0);
+    otter::RasterCanvas *canvas = get_canvas(argv, 0);
     otter::TextLine *line = get_text_line(argv, 1);
     const float x = static_cast<float>(janet_getnumber(argv, 2));
     const float y = static_cast<float>(janet_getnumber(argv, 3));
@@ -344,33 +399,33 @@ static Janet cfun_draw_text_line(int32_t argc, Janet *argv) {
 static const JanetReg common_cfuns[] = {
     {
         "create", cfun_create,
-        "(skia/create &opt width height)\n\n"
-        "Create a gray8 Skia canvas."
+        "(skia/create &opt width height pixel-format font-dir default-family)\n\n"
+        "Create a raster Skia canvas in :gray8 or :rgba32 format."
     },
     {
         "clear", cfun_clear,
-        "(skia/clear canvas gray)\n\n"
-        "Fill a gray8 canvas with a gray value in 0..255."
+        "(skia/clear canvas paint)\n\n"
+        "Fill a raster canvas with a normalized paint."
     },
     {
         "draw-rect", cfun_draw_rect,
-        "(skia/draw-rect canvas x y width height gray)\n\n"
-        "Draw a filled rectangle on a gray8 canvas."
+        "(skia/draw-rect canvas x y width height paint)\n\n"
+        "Draw a rectangle on a raster canvas."
     },
     {
         "draw-rounded-rect", cfun_draw_rounded_rect,
-        "(skia/draw-rounded-rect canvas x y width height radius gray)\n\n"
-        "Draw a filled rounded rectangle on a gray8 canvas."
+        "(skia/draw-rounded-rect canvas x y width height radius paint)\n\n"
+        "Draw a rounded rectangle on a raster canvas."
     },
     {
         "draw-triangle", cfun_draw_triangle,
-        "(skia/draw-triangle canvas x1 y1 x2 y2 x3 y3 gray)\n\n"
-        "Draw a filled triangle on a gray8 canvas."
+        "(skia/draw-triangle canvas x1 y1 x2 y2 x3 y3 paint)\n\n"
+        "Draw a triangle on a raster canvas."
     },
     {
         "draw-circle", cfun_draw_circle,
-        "(skia/draw-circle canvas cx cy radius gray)\n\n"
-        "Draw a filled circle on a gray8 canvas."
+        "(skia/draw-circle canvas cx cy radius paint)\n\n"
+        "Draw a circle on a raster canvas."
     },
     {
         "save", cfun_save,
@@ -394,11 +449,11 @@ static const JanetReg common_cfuns[] = {
     },
     {
         "draw-line", cfun_draw_line,
-        "(skia/draw-line canvas x1 y1 x2 y2 gray stroke-width)\n\nDraw a stroked line on a gray8 canvas."
+        "(skia/draw-line canvas x1 y1 x2 y2 paint)\n\nDraw a stroked line on a raster canvas."
     },
     {
         "draw-path", cfun_draw_path,
-        "(skia/draw-path canvas coords closed? gray)\n\nDraw a filled path from flattened coordinates."
+        "(skia/draw-path canvas coords closed? paint)\n\nDraw a path from flattened coordinates."
     },
     {
         "load-png", cfun_load_png,
@@ -426,7 +481,7 @@ static const JanetReg common_cfuns[] = {
     },
     {
         "draw-text-line", cfun_draw_text_line,
-        "(skia/draw-text-line canvas text-line x y gray)\n\nDraw a shaped text line."
+        "(skia/draw-text-line canvas text-line x y paint)\n\nDraw a shaped text line."
     },
     {
         "sample-gray", cfun_sample_gray,
@@ -434,9 +489,17 @@ static const JanetReg common_cfuns[] = {
         "Return the gray value at a canvas pixel."
     },
     {
+        "sample-rgba", cfun_sample_rgba,
+        "(skia/sample-rgba canvas x y)\n\nReturn the RGBA value at a canvas pixel."
+    },
+    {
+        "canvas-info", cfun_canvas_info,
+        "(skia/canvas-info canvas)\n\nReturn raster canvas width, height, and pixel format."
+    },
+    {
         "stats", cfun_stats,
         "(skia/stats canvas)\n\n"
-        "Return gray8 canvas statistics."
+        "Return raster canvas statistics."
     },
     {NULL, NULL, NULL}
 };
@@ -444,7 +507,7 @@ static const JanetReg common_cfuns[] = {
 }  // namespace
 
 Dimensions get_dimensions(int32_t argc, Janet *argv) {
-    janet_arity(argc, 0, 4);
+    janet_arity(argc, 0, 5);
     Dimensions dimensions;
     if (argc >= 1) {
         dimensions.width = janet_getinteger(argv, 0);
@@ -458,8 +521,8 @@ Dimensions get_dimensions(int32_t argc, Janet *argv) {
     return dimensions;
 }
 
-otter::GrayCanvas *get_canvas(Janet *argv, int32_t n) {
-    return static_cast<otter::GrayCanvas *>(janet_getabstract(argv, n, &canvas_type));
+otter::RasterCanvas *get_canvas(Janet *argv, int32_t n) {
+    return static_cast<otter::RasterCanvas *>(janet_getabstract(argv, n, &canvas_type));
 }
 
 bool keyword_equals(Janet value, const char *expected) {
@@ -563,11 +626,11 @@ otter::NormalizedPaint get_paint(Janet *argv, int32_t n) {
     return paint;
 }
 
-Janet make_stats_table(const otter::GrayStats &stats) {
+Janet make_stats_table(const otter::CanvasStats &stats) {
     JanetTable *table = janet_table(8);
     janet_table_put(table, janet_ckeywordv("width"), janet_wrap_integer(stats.width));
     janet_table_put(table, janet_ckeywordv("height"), janet_wrap_integer(stats.height));
-    janet_table_put(table, janet_ckeywordv("pixel-format"), janet_ckeywordv("gray8"));
+    janet_table_put(table, janet_ckeywordv("pixel-format"), janet_ckeywordv(otter::pixel_format_name(stats.pixel_format)));
     janet_table_put(table, janet_ckeywordv("min-gray"), janet_wrap_integer(stats.min_gray));
     janet_table_put(table, janet_ckeywordv("max-gray"), janet_wrap_integer(stats.max_gray));
     janet_table_put(table, janet_ckeywordv("gray-shades"), janet_wrap_integer(stats.gray_shades));

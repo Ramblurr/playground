@@ -39,6 +39,8 @@
           :text-line-metrics (native-export? native-fn 'text-line-metrics)
           :draw-text-line (native-export? native-fn 'draw-text-line)
           :sample-gray (native-export? native-fn 'sample-gray)
+          :sample-rgba (native-export? native-fn 'sample-rgba)
+          :canvas-info (native-export? native-fn 'canvas-info)
           :stats (native-export? native-fn 'stats)
           :present (native-export? native-fn 'present)
           :fixed-viewport (native-export? native-fn 'fixed-viewport)})
@@ -52,6 +54,8 @@
                    :text-line-metrics true
                    :draw-text-line true
                    :sample-gray true
+                   :sample-rgba true
+                   :canvas-info true
                    :stats true
                    :present true
                    :fixed-viewport true}

@@ -134,4 +134,24 @@
              observed)
       "ui/render can render one label through the public UI facade"))
 
+(deftest ui-label-draws-paint-sequences-for-stroked-text
+  (def frame (test-canvas))
+  (skia/clear frame "F")
+  (def node (ui/make [ui/label {:font-size 28
+                                :paint [{:stroke "0" :width 1}
+                                        {:fill "0"}]}
+                      "Outlined"]))
+  (def size (ui/measure frame node {:w 320 :h 120}))
+  (def before (skia/stats frame))
+  (ui/draw frame node (nodes/make-bounds 4 5 (get size :w) (get size :h)))
+  (def after (skia/stats frame))
+  (def observed
+    @{:has-size? (and (> (get size :w) 0) (> (get size :h) 0))
+      :draw-mutated? (> (get after :non-white-pixels)
+                        (get before :non-white-pixels))})
+  (is (deep= @{:has-size? true
+               :draw-mutated? true}
+             observed)
+      "ui/label accepts paint sequences for stroked and filled text"))
+
 (run-tests!)

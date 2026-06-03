@@ -19,14 +19,27 @@ namespace otter {
 constexpr int kKoboScreenWidth = 1264;
 constexpr int kKoboScreenHeight = 1680;
 
-struct GrayStats {
+enum class PixelFormat {
+    Gray8,
+    Rgba32,
+};
+
+struct CanvasStats {
     int width = 0;
     int height = 0;
+    PixelFormat pixel_format = PixelFormat::Gray8;
     int min_gray = 255;
     int max_gray = 0;
     int gray_shades = 0;
     int non_white_pixels = 0;
     std::uint64_t checksum = 0;
+};
+
+struct RgbaPixel {
+    std::uint8_t r = 0;
+    std::uint8_t g = 0;
+    std::uint8_t b = 0;
+    std::uint8_t a = 255;
 };
 
 enum class PaintStyle {
@@ -85,15 +98,16 @@ public:
 
 struct TextState;
 
-class GrayCanvas {
+class RasterCanvas {
 public:
-    GrayCanvas();
-    ~GrayCanvas();
-    GrayCanvas(const GrayCanvas &) = delete;
-    GrayCanvas &operator=(const GrayCanvas &) = delete;
+    RasterCanvas();
+    ~RasterCanvas();
+    RasterCanvas(const RasterCanvas &) = delete;
+    RasterCanvas &operator=(const RasterCanvas &) = delete;
 
-    bool reset(int width, int height, const char *font_dir = nullptr, const char *default_family = nullptr);
+    bool reset(int width, int height, PixelFormat pixel_format = PixelFormat::Gray8, const char *font_dir = nullptr, const char *default_family = nullptr);
 
+    PixelFormat pixel_format() const { return pixel_format_; }
     int width() const { return bitmap_.width(); }
     int height() const { return bitmap_.height(); }
     std::size_t row_bytes() const { return bitmap_.rowBytes(); }
@@ -104,6 +118,7 @@ public:
     TextState *text_state();
 
 private:
+    PixelFormat pixel_format_ = PixelFormat::Gray8;
     SkBitmap bitmap_;
     std::unique_ptr<SkCanvas> canvas_;
     std::unique_ptr<TextState> text_;
@@ -125,12 +140,13 @@ private:
     SkBitmap bitmap_;
 };
 
-bool valid_dimensions(int width, int height);
-void clear(GrayCanvas &canvas, const NormalizedPaint &paint);
-bool draw_rect(GrayCanvas &canvas, float x, float y, float width, float height, const NormalizedPaint &paint);
-bool draw_rounded_rect(GrayCanvas &canvas, float x, float y, float width, float height, float radius, const NormalizedPaint &paint);
+bool valid_dimensions(int width, int height, PixelFormat pixel_format = PixelFormat::Gray8);
+const char *pixel_format_name(PixelFormat pixel_format);
+void clear(RasterCanvas &canvas, const NormalizedPaint &paint);
+bool draw_rect(RasterCanvas &canvas, float x, float y, float width, float height, const NormalizedPaint &paint);
+bool draw_rounded_rect(RasterCanvas &canvas, float x, float y, float width, float height, float radius, const NormalizedPaint &paint);
 bool draw_triangle(
-    GrayCanvas &canvas,
+    RasterCanvas &canvas,
     float x1,
     float y1,
     float x2,
@@ -138,20 +154,21 @@ bool draw_triangle(
     float x3,
     float y3,
     const NormalizedPaint &paint);
-bool draw_circle(GrayCanvas &canvas, float cx, float cy, float radius, const NormalizedPaint &paint);
-bool save(GrayCanvas &canvas);
-bool restore(GrayCanvas &canvas);
-bool translate(GrayCanvas &canvas, float x, float y);
-bool scale(GrayCanvas &canvas, float sx, float sy);
-bool clip_rect(GrayCanvas &canvas, float x, float y, float width, float height);
-bool draw_line(GrayCanvas &canvas, float x1, float y1, float x2, float y2, const NormalizedPaint &paint);
-bool draw_path(GrayCanvas &canvas, const std::vector<float> &coords, bool closed, const NormalizedPaint &paint);
-bool shape_text(GrayCanvas &canvas, const std::string &utf8, const FontOptions &font_options, const std::string &features_string, TextLine *line, std::string *error_message);
-bool draw_text_line(GrayCanvas &canvas, const TextLine &line, float x, float y, const NormalizedPaint &paint);
-bool draw_image(GrayCanvas &canvas, const RasterImage &image, float src_x, float src_y, float src_width, float src_height, float dst_x, float dst_y, float dst_width, float dst_height, float alpha);
-std::uint8_t sample_gray(const GrayCanvas &canvas, int x, int y);
-GrayStats compute_stats(const GrayCanvas &canvas);
-void gray8_to_rgba32(const GrayCanvas &canvas, std::vector<std::uint8_t> *rgba);
+bool draw_circle(RasterCanvas &canvas, float cx, float cy, float radius, const NormalizedPaint &paint);
+bool save(RasterCanvas &canvas);
+bool restore(RasterCanvas &canvas);
+bool translate(RasterCanvas &canvas, float x, float y);
+bool scale(RasterCanvas &canvas, float sx, float sy);
+bool clip_rect(RasterCanvas &canvas, float x, float y, float width, float height);
+bool draw_line(RasterCanvas &canvas, float x1, float y1, float x2, float y2, const NormalizedPaint &paint);
+bool draw_path(RasterCanvas &canvas, const std::vector<float> &coords, bool closed, const NormalizedPaint &paint);
+bool shape_text(RasterCanvas &canvas, const std::string &utf8, const FontOptions &font_options, const std::string &features_string, TextLine *line, std::string *error_message);
+bool draw_text_line(RasterCanvas &canvas, const TextLine &line, float x, float y, const NormalizedPaint &paint);
+bool draw_image(RasterCanvas &canvas, const RasterImage &image, float src_x, float src_y, float src_width, float src_height, float dst_x, float dst_y, float dst_width, float dst_height, float alpha);
+std::uint8_t sample_gray(const RasterCanvas &canvas, int x, int y);
+RgbaPixel sample_rgba(const RasterCanvas &canvas, int x, int y);
+CanvasStats compute_stats(const RasterCanvas &canvas);
+void canvas_to_rgba32(const RasterCanvas &canvas, std::vector<std::uint8_t> *rgba);
 
 }  // namespace otter
 

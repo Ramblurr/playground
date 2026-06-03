@@ -469,7 +469,7 @@ void draw_device_bezel(SkCanvas *canvas, const ChromeLayout &layout) {
     draw_hardware_controls(canvas, *bezel, layout.canvas);
 }
 
-bool draw_shaped_button_label(SkCanvas *canvas, otter::GrayCanvas &font_source, const CanvasRect &button, const Rgba &color) {
+bool draw_shaped_button_label(SkCanvas *canvas, otter::RasterCanvas &font_source, const CanvasRect &button, const Rgba &color) {
     otter::FontOptions font_options;
     font_options.family = "Noto Sans";
     font_options.size = kChromeButtonLabelFontSize;
@@ -500,7 +500,7 @@ void draw_simple_button_label(SkCanvas *canvas, const CanvasRect &button, const 
     canvas->drawSimpleText(kChromeButtonLabel, label_size, SkTextEncoding::kUTF8, x, y, font, paint);
 }
 
-void draw_chrome_button(SkCanvas *canvas, otter::GrayCanvas &font_source, const CanvasRect &button, const ButtonStyle &style) {
+void draw_chrome_button(SkCanvas *canvas, otter::RasterCanvas &font_source, const CanvasRect &button, const ButtonStyle &style) {
     const SkRect rect = sk_rect(button);
     canvas->drawRect(rect, fill_paint(style.background));
     canvas->drawRect(rect, stroke_paint(style.border, 1.0f));
@@ -509,7 +509,7 @@ void draw_chrome_button(SkCanvas *canvas, otter::GrayCanvas &font_source, const 
     }
 }
 
-bool render_chrome(SDL_Renderer *renderer, otter::GrayCanvas &font_source, const ChromeLayout &layout, const ButtonInteraction &button_interaction) {
+bool render_chrome(SDL_Renderer *renderer, otter::RasterCanvas &font_source, const ChromeLayout &layout, const ButtonInteraction &button_interaction) {
     int output_width = 0;
     int output_height = 0;
     if (SDL_GetRendererOutputSize(renderer, &output_width, &output_height) != 0 || output_width <= 0 || output_height <= 0) {
@@ -585,7 +585,7 @@ bool button_hit_for_window_point(
     SDL_Renderer *renderer,
     SDL_Window *window,
     const BezelSpec *bezel,
-    const otter::GrayCanvas &canvas,
+    const otter::RasterCanvas &canvas,
     int window_x,
     int window_y,
     bool *hit) {
@@ -612,10 +612,10 @@ bool present_canvas(
     SDL_Renderer *renderer,
     SDL_Texture *texture,
     const BezelSpec *bezel,
-    otter::GrayCanvas &canvas,
+    otter::RasterCanvas &canvas,
     const ButtonInteraction &button_interaction) {
     std::vector<std::uint8_t> rgba;
-    otter::gray8_to_rgba32(canvas, &rgba);
+    otter::canvas_to_rgba32(canvas, &rgba);
 
     if (SDL_UpdateTexture(texture, nullptr, rgba.data(), canvas.width() * 4) != 0) {
         return false;
@@ -651,7 +651,7 @@ void redraw_canvas(
     SDL_Window *window,
     bool sdl_initialized,
     const BezelSpec *bezel,
-    otter::GrayCanvas &canvas,
+    otter::RasterCanvas &canvas,
     const ButtonInteraction &button_interaction) {
     if (!present_canvas(renderer, texture, bezel, canvas, button_interaction)) {
         panic_sdl("SDL present", texture, renderer, window, sdl_initialized);
@@ -664,7 +664,7 @@ void run_event_loop(
     SDL_Window *window,
     bool sdl_initialized,
     const BezelSpec *bezel,
-    otter::GrayCanvas &canvas,
+    otter::RasterCanvas &canvas,
     ButtonInteraction button_interaction) {
     bool running = true;
     bool press_started_on_button = false;
@@ -770,7 +770,7 @@ static Janet cfun_fixed_viewport(int32_t argc, Janet *argv) {
 
 static Janet cfun_present(int32_t argc, Janet *argv) {
     janet_arity(argc, 1, 2);
-    otter::GrayCanvas *canvas = otter::binding::get_canvas(argv, 0);
+    otter::RasterCanvas *canvas = otter::binding::get_canvas(argv, 0);
     Janet options = argc >= 2 ? argv[1] : janet_wrap_nil();
     const bool block = option_bool(options, "block?", true);
     const BezelSpec *bezel = selected_bezel_spec();
@@ -848,7 +848,7 @@ static const JanetReg platform_cfuns[] = {
     {
         "present", cfun_present,
         "(skia/present canvas &opt options)\n\n"
-        "Open an SDL window, present a gray8 canvas with desktop diagnostics chrome, and optionally run the static event loop."
+        "Open an SDL window, present a raster canvas with desktop diagnostics chrome, and optionally run the static event loop."
     },
     {NULL, NULL, NULL}
 };

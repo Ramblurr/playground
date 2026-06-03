@@ -277,4 +277,43 @@
   (is (= 255 (skia/sample-gray frame 17 17))
       "draw-image does not write outside the destination rectangle"))
 
+(deftest explicit-gray8-and-rgba32-canvases-report-format-info
+  (def gray (skia/create {:width 16 :height 8 :pixel-format :gray8}))
+  (def rgba (skia/create {:width 16 :height 8 :pixel-format :rgba32}))
+  (def observed
+    @{:gray-info (skia/canvas-info gray)
+      :gray-format (skia/pixel-format gray)
+      :rgba-info (skia/canvas-info rgba)
+      :rgba-format (skia/pixel-format rgba)})
+  (is (deep= @{:gray-info @{:width 16 :height 8 :pixel-format :gray8}
+               :gray-format :gray8
+               :rgba-info @{:width 16 :height 8 :pixel-format :rgba32}
+               :rgba-format :rgba32}
+             observed)
+      "explicit :gray8 and :rgba32 canvases expose format-aware public canvas info"))
+
+(deftest rgba32-canvas-preserves-rgb-paint-channels
+  (def frame (skia/create {:width 8 :height 8 :pixel-format :rgba32}))
+  (skia/clear frame "FFDD22")
+  (skia/draw-rect frame 2 2 2 2 {:paint {:fill "0088FF" :anti-alias? false}})
+  (def stats (skia/stats frame))
+  (def observed
+    @{:background (skia/sample-rgba frame 0 0)
+      :rect (skia/sample-rgba frame 2 2)
+      :format (get stats :pixel-format)})
+  (is (deep= @{:background @{:r 255 :g 221 :b 34 :a 255}
+               :rect @{:r 0 :g 136 :b 255 :a 255}
+               :format :rgba32}
+             observed)
+      "rgba32 canvases preserve color channels instead of reducing paint to gray"))
+
+(deftest unsupported-canvas-pixel-formats-fail-clearly
+  (def observed
+    @{:rgb565-rejected? (not (get (protect (skia/create {:width 8 :height 8 :pixel-format :rgb565})) 0))
+      :string-format-rejected? (not (get (protect (skia/create {:width 8 :height 8 :pixel-format "gray8"})) 0))})
+  (is (deep= @{:rgb565-rejected? true
+               :string-format-rejected? true}
+             observed)
+      "only :gray8 and :rgba32 are accepted render canvas formats in this milestone"))
+
 (run-tests!)
