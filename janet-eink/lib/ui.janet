@@ -2,11 +2,15 @@
 
 (import ./skia :as skia)
 (import ./ui/label :as label-node)
+(import ./ui/gap :as gap-node)
+(import ./ui/padding :as padding-node)
 (import ./ui/nodes :as nodes)
 (import ./ui/reconcile :as reconcile-node)
 (import ./ui/rect :as rect-node)
 
 (def label label-node/label)
+(def gap gap-node/gap)
+(def padding padding-node/padding)
 (def rect rect-node/rect)
 (def make reconcile-node/make)
 (def reconcile reconcile-node/reconcile)
