@@ -332,6 +332,18 @@
   [path]
   ((native-fn 'load-png) path))
 
+(defn load-svg
+  [path]
+  ((native-fn 'load-svg) path))
+
+(defn load-svg-bytes
+  [bytes]
+  ((native-fn 'load-svg-bytes) bytes))
+
+(defn svg-info
+  [svg]
+  ((native-fn 'svg-info) svg))
+
 (defn create-image
   [opts]
   ((native-fn 'create-image) opts))
@@ -347,6 +359,72 @@
 (defn image-info
   [image]
   ((native-fn 'image-info) image))
+
+(defn- svg-scale-key
+  [opts]
+  (case (get opts :scale :fit)
+    :fit :meet
+    :fill :slice
+    (error (string "draw-svg :scale must be :fit or :fill, got " (get opts :scale)))))
+
+(defn- svg-x-anchor
+  [value]
+  (case value
+    nil :center
+    :left :left
+    :center :center
+    :right :right
+    0 :left
+    0.5 :center
+    1 :right
+    (error (string "draw-svg :x must be :left, :center, :right, 0, 0.5, or 1, got " value))))
+
+(defn- svg-y-anchor
+  [value]
+  (case value
+    nil :center
+    :top :top
+    :center :center
+    :bottom :bottom
+    0 :top
+    0.5 :center
+    1 :bottom
+    (error (string "draw-svg :y must be :top, :center, :bottom, 0, 0.5, or 1, got " value))))
+
+(defn- svg-align-key
+  [x y]
+  (cond
+    (and (= x :left) (= y :top)) :xmin-ymin
+    (and (= x :center) (= y :top)) :xmid-ymin
+    (and (= x :right) (= y :top)) :xmax-ymin
+    (and (= x :left) (= y :center)) :xmin-ymid
+    (and (= x :center) (= y :center)) :xmid-ymid
+    (and (= x :right) (= y :center)) :xmax-ymid
+    (and (= x :left) (= y :bottom)) :xmin-ymax
+    (and (= x :center) (= y :bottom)) :xmid-ymax
+    (and (= x :right) (= y :bottom)) :xmax-ymax
+    :else (error (string "draw-svg could not map anchors " x " and " y))))
+
+(defn- svg-preserve-aspect-ratio?
+  [opts]
+  (let [value (get opts :preserve-aspect-ratio true)]
+    (cond
+      (= value true) true
+      (= value false) false
+      :else (error (string "draw-svg :preserve-aspect-ratio must be true or false, got " value)))))
+
+(defn- svg-align
+  [opts]
+  (if (svg-preserve-aspect-ratio? opts)
+    (svg-align-key (svg-x-anchor (get opts :x nil))
+                   (svg-y-anchor (get opts :y nil)))
+    :none))
+
+(defn draw-svg
+  [canvas svg x y w h &opt opts]
+  (let [options (or opts @{})]
+    ((native-fn 'draw-svg) canvas svg x y w h (svg-align options) (svg-scale-key options)))
+  canvas)
 
 (defn draw-image
   [canvas image x y &opt opts]

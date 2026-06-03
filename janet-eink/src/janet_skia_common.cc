@@ -43,6 +43,22 @@ static const JanetAbstractType image_type = {
     JANET_ATEND_PUT
 };
 
+static int svg_gc(void *p, size_t s) {
+    (void) s;
+    auto *svg = static_cast<otter::SvgDocument *>(p);
+    svg->~SvgDocument();
+    return 0;
+}
+
+static const JanetAbstractType svg_type = {
+    "otter/skia-svg",
+    svg_gc,
+    nullptr,
+    nullptr,
+    nullptr,
+    JANET_ATEND_PUT
+};
+
 static int text_line_gc(void *p, size_t s) {
     (void) s;
     auto *line = static_cast<otter::TextLine *>(p);
@@ -61,6 +77,10 @@ static const JanetAbstractType text_line_type = {
 
 static otter::RasterImage *get_image(Janet *argv, int32_t n) {
     return static_cast<otter::RasterImage *>(janet_getabstract(argv, n, &image_type));
+}
+
+static otter::SvgDocument *get_svg(Janet *argv, int32_t n) {
+    return static_cast<otter::SvgDocument *>(janet_getabstract(argv, n, &svg_type));
 }
 
 static otter::TextLine *get_text_line(Janet *argv, int32_t n) {
@@ -316,6 +336,28 @@ static Janet cfun_load_png(int32_t argc, Janet *argv) {
     return janet_wrap_abstract(image);
 }
 
+static Janet cfun_load_svg(int32_t argc, Janet *argv) {
+    janet_fixarity(argc, 1);
+    const char *path = janet_getcstring(argv, 0);
+    void *memory = janet_abstract(&svg_type, sizeof(otter::SvgDocument));
+    auto *svg = new (memory) otter::SvgDocument();
+    if (!svg->load_file(path)) {
+        janet_panicf("failed to load SVG image: %s", path);
+    }
+    return janet_wrap_abstract(svg);
+}
+
+static Janet cfun_load_svg_bytes(int32_t argc, Janet *argv) {
+    janet_fixarity(argc, 1);
+    JanetByteView view = janet_getbytes(argv, 0);
+    void *memory = janet_abstract(&svg_type, sizeof(otter::SvgDocument));
+    auto *svg = new (memory) otter::SvgDocument();
+    if (!svg->load_bytes(view.bytes, static_cast<std::size_t>(view.len))) {
+        janet_panic("failed to load SVG image from bytes");
+    }
+    return janet_wrap_abstract(svg);
+}
+
 static Janet required_option(Janet options, const char *key) {
     Janet value = janet_get(options, janet_ckeywordv(key));
     if (janet_checktype(value, JANET_NIL)) {
@@ -400,6 +442,15 @@ static Janet cfun_image_info(int32_t argc, Janet *argv) {
     return janet_wrap_table(table);
 }
 
+static Janet cfun_svg_info(int32_t argc, Janet *argv) {
+    janet_fixarity(argc, 1);
+    otter::SvgDocument *svg = get_svg(argv, 0);
+    JanetTable *table = janet_table(2);
+    janet_table_put(table, janet_ckeywordv("width"), janet_wrap_number(svg->intrinsic_width()));
+    janet_table_put(table, janet_ckeywordv("height"), janet_wrap_number(svg->intrinsic_height()));
+    return janet_wrap_table(table);
+}
+
 static Janet cfun_draw_image(int32_t argc, Janet *argv) {
     janet_fixarity(argc, 11);
     otter::RasterCanvas *canvas = get_canvas(argv, 0);
@@ -417,6 +468,44 @@ static Janet cfun_draw_image(int32_t argc, Janet *argv) {
             static_cast<float>(janet_getnumber(argv, 9)),
             static_cast<float>(janet_getnumber(argv, 10)))) {
         janet_panic("draw-image requires finite source and destination rectangles within image bounds");
+    }
+    return argv[0];
+}
+
+static otter::SvgAspectAlign get_svg_align(Janet value) {
+    if (keyword_arg_equals(value, "xmin-ymin")) { return otter::SvgAspectAlign::XMinYMin; }
+    if (keyword_arg_equals(value, "xmid-ymin")) { return otter::SvgAspectAlign::XMidYMin; }
+    if (keyword_arg_equals(value, "xmax-ymin")) { return otter::SvgAspectAlign::XMaxYMin; }
+    if (keyword_arg_equals(value, "xmin-ymid")) { return otter::SvgAspectAlign::XMinYMid; }
+    if (keyword_arg_equals(value, "xmid-ymid")) { return otter::SvgAspectAlign::XMidYMid; }
+    if (keyword_arg_equals(value, "xmax-ymid")) { return otter::SvgAspectAlign::XMaxYMid; }
+    if (keyword_arg_equals(value, "xmin-ymax")) { return otter::SvgAspectAlign::XMinYMax; }
+    if (keyword_arg_equals(value, "xmid-ymax")) { return otter::SvgAspectAlign::XMidYMax; }
+    if (keyword_arg_equals(value, "xmax-ymax")) { return otter::SvgAspectAlign::XMaxYMax; }
+    if (keyword_arg_equals(value, "none")) { return otter::SvgAspectAlign::None; }
+    janet_panic("svg align must be :xmin-ymin, :xmid-ymin, :xmax-ymin, :xmin-ymid, :xmid-ymid, :xmax-ymid, :xmin-ymax, :xmid-ymax, :xmax-ymax, or :none");
+}
+
+static otter::SvgAspectScale get_svg_scale(Janet value) {
+    if (keyword_arg_equals(value, "meet")) { return otter::SvgAspectScale::Meet; }
+    if (keyword_arg_equals(value, "slice")) { return otter::SvgAspectScale::Slice; }
+    janet_panic("svg scale must be :meet or :slice");
+}
+
+static Janet cfun_draw_svg(int32_t argc, Janet *argv) {
+    janet_fixarity(argc, 8);
+    otter::RasterCanvas *canvas = get_canvas(argv, 0);
+    otter::SvgDocument *svg = get_svg(argv, 1);
+    if (!otter::draw_svg(
+            *canvas,
+            *svg,
+            static_cast<float>(janet_getnumber(argv, 2)),
+            static_cast<float>(janet_getnumber(argv, 3)),
+            static_cast<float>(janet_getnumber(argv, 4)),
+            static_cast<float>(janet_getnumber(argv, 5)),
+            get_svg_align(argv[6]),
+            get_svg_scale(argv[7]))) {
+        janet_panic("draw-svg requires a loaded SVG, finite coordinates, and positive finite width and height");
     }
     return argv[0];
 }
@@ -651,6 +740,18 @@ static const JanetReg common_cfuns[] = {
         "(skia/load-png path)\n\nLoad a PNG file and return an image handle."
     },
     {
+        "load-svg", cfun_load_svg,
+        "(skia/load-svg path)\n\nLoad an SVG file and return an SVG handle."
+    },
+    {
+        "load-svg-bytes", cfun_load_svg_bytes,
+        "(skia/load-svg-bytes bytes)\n\nLoad SVG markup bytes and return an SVG handle."
+    },
+    {
+        "svg-info", cfun_svg_info,
+        "(skia/svg-info svg)\n\nReturn intrinsic SVG width and height when available."
+    },
+    {
         "create-image", cfun_create_image,
         "(skia/create-image options)\n\nCreate a synthetic :gray8, :gray8a, or :rgba32 image from byte pixels."
     },
@@ -669,6 +770,10 @@ static const JanetReg common_cfuns[] = {
     {
         "draw-image", cfun_draw_image,
         "(skia/draw-image canvas image src-x src-y src-width src-height dst-x dst-y dst-width dst-height alpha)\n\nDraw a source rectangle from an image into a canvas."
+    },
+    {
+        "draw-svg", cfun_draw_svg,
+        "(skia/draw-svg canvas svg x y width height align scale)\n\nDraw an SVG handle into a raster canvas."
     },
     {
         "invert-rect", cfun_invert_rect,

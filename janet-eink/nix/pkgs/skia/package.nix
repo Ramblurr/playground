@@ -2,18 +2,20 @@
   lib,
   stdenv,
   fetchgit,
+  expat,
   freetype,
   gn,
   harfbuzzFull,
   icu,
   libpng,
+  libjpeg_turbo,
   ninja,
   python3,
   zlib,
 }:
 
 stdenv.mkDerivation (finalAttrs: {
-  pname = "skia-kobo-raster-clang";
+  pname = "skia-raster-clang";
   # Keep this pinned to the nixpkgs Skia revision this package was derived from.
   version = "144-unstable-2025-12-02";
 
@@ -41,9 +43,11 @@ stdenv.mkDerivation (finalAttrs: {
   ];
 
   buildInputs = [
+    expat
     freetype
     harfbuzzFull
     icu
+    libjpeg_turbo
     libpng
     zlib
   ];
@@ -73,7 +77,7 @@ stdenv.mkDerivation (finalAttrs: {
       "ar=\"${stdenv.cc.targetPrefix}ar\""
       "target_cpu=\"${cpu}\""
 
-      # CPU/raster-only build for Kobo. No display server or GPU backend.
+      # CPU/raster-only build. No display server or GPU backend.
       "skia_enable_ganesh=false"
       "skia_enable_graphite=false"
       "skia_use_gl=false"
@@ -101,10 +105,12 @@ stdenv.mkDerivation (finalAttrs: {
       "skia_system_freetype2_include_path=\"${lib.getDev freetype}/include/freetype2\""
       "skia_system_freetype2_lib=\"freetype\""
 
-      # Keep PNG. Drop heavier image/document/animation features for now.
+      # Keep PNG/JPEG decode and SVG. Drop heavier image/document/animation features for now.
+      # The SVG resource provider links against the default codec table, so JPEG
+      # decode must be present even when the app mainly uses standalone SVG paths.
       "skia_use_libpng_decode=true"
       "skia_use_libpng_encode=true"
-      "skia_use_libjpeg_turbo_decode=false"
+      "skia_use_libjpeg_turbo_decode=true"
       "skia_use_libjpeg_turbo_encode=false"
       "skia_use_no_jpeg_encode=true"
       "skia_use_libwebp_decode=false"
@@ -118,8 +124,9 @@ stdenv.mkDerivation (finalAttrs: {
       "skia_use_xps=false"
       "skia_enable_pdf=false"
       "skia_enable_skottie=false"
-      "skia_enable_svg=false"
-      "skia_use_expat=false"
+      "skia_enable_svg=true"
+      "skia_use_expat=true"
+      "skia_use_system_expat=true"
       "skia_use_perfetto=false"
       "skia_use_lua=false"
       "skia_build_fuzzers=false"
@@ -132,16 +139,19 @@ stdenv.mkDerivation (finalAttrs: {
       "skia_use_system_harfbuzz=true"
       "skia_use_system_icu=true"
       "skia_use_system_libpng=true"
+      "skia_use_system_libjpeg_turbo=true"
     ];
 
-  # Build the core library plus text modules. The default all target pulls in a
-  # lot of tests/tools; keep this package focused on the libraries we need.
+  # Build the core library plus text and SVG modules. The default all target pulls
+  # in a lot of tests/tools; keep this package focused on the libraries we need.
   ninjaFlags = [
     "skia"
     "modules/skunicode:skunicode_core"
     "modules/skunicode:skunicode_icu"
     "modules/skshaper:skshaper"
     "modules/skparagraph:skparagraph"
+    "modules/skresources:skresources"
+    "modules/svg:svg"
   ];
 
   installPhase = ''
@@ -169,7 +179,7 @@ stdenv.mkDerivation (finalAttrs: {
     libdir=\''${prefix}/lib
     includedir=\''${prefix}/include/skia
     Name: skia
-    Description: CPU-only Skia raster library for Kobo
+    Description: CPU-only Skia raster library
     URL: https://skia.org/
     Version: ${lib.versions.major finalAttrs.version}
     Libs: -L\''${libdir} -lskia
@@ -183,12 +193,28 @@ stdenv.mkDerivation (finalAttrs: {
     libdir=\''${prefix}/lib
     includedir=\''${prefix}/include/skia
     Name: skia-paragraph
-    Description: Skia paragraph and shaping modules for Kobo
+    Description: Skia paragraph and shaping modules
     URL: https://skia.org/
     Version: ${lib.versions.major finalAttrs.version}
     Requires: skia
     Libs: -L\''${libdir} -lskparagraph -lskshaper -lskunicode_icu -lskunicode_core
     Cflags: -I\''${includedir}
+    EOF_PC
+    fi
+
+    if [ -e "$out/lib/libsvg.so" ]; then
+      cat > "$out/lib/pkgconfig/skia-svg.pc" <<EOF_PC
+    prefix=$out
+    exec_prefix=\''${prefix}
+    libdir=\''${prefix}/lib
+    includedir=\''${prefix}/include/skia
+    Name: skia-svg
+    Description: Skia SVG DOM renderer for Otter
+    URL: https://skia.org/
+    Version: ${lib.versions.major finalAttrs.version}
+    Requires: skia skia-paragraph
+    Libs: -L\''${libdir} -lsvg -lskresources -L${lib.getLib expat}/lib -lexpat
+    Cflags: -I\''${includedir} -DSK_ENABLE_SVG
     EOF_PC
     fi
 
@@ -205,13 +231,14 @@ stdenv.mkDerivation (finalAttrs: {
   '';
 
   meta = {
-    description = "CPU-only Skia build for Kobo ARMv7 e-ink rendering";
+    description = "CPU-only Skia raster build for e-ink rendering";
     homepage = "https://skia.org/";
     license = lib.licenses.bsd3;
     platforms = lib.platforms.linux;
     pkgConfigModules = [
       "skia"
       "skia-paragraph"
+      "skia-svg"
     ];
   };
 })

@@ -18,6 +18,7 @@
 (import ./row-column :as row-column)
 (import ./size :as size)
 (import ./stack :as stack)
+(import ./svg :as svg)
 (import ./translate :as translate)
 (import ./with-context :as with-context)
 (import ./util :as util)
@@ -54,6 +55,7 @@
 (register-builtin! row-column/column :column)
 (register-builtin! size/size :size)
 (register-builtin! stack/stack :stack)
+(register-builtin! svg/svg :svg)
 (register-builtin! translate/translate :translate)
 (register-builtin! with-context/with-context :with-context)
 

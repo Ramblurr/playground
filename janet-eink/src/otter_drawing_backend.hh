@@ -1,6 +1,7 @@
 #ifndef OTTER_DRAWING_BACKEND_HH
 #define OTTER_DRAWING_BACKEND_HH
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -13,6 +14,7 @@
 #include "core/SkTextBlob.h"
 #include "modules/skshaper/include/SkShaper.h"
 class SkCanvas;
+class SkSVGDOM;
 
 namespace otter {
 
@@ -28,6 +30,24 @@ enum class PixelFormat {
 enum class DitherMode {
     None,
     Ordered,
+};
+
+enum class SvgAspectAlign {
+    XMinYMin,
+    XMidYMin,
+    XMaxYMin,
+    XMinYMid,
+    XMidYMid,
+    XMaxYMid,
+    XMinYMax,
+    XMidYMax,
+    XMaxYMax,
+    None,
+};
+
+enum class SvgAspectScale {
+    Meet,
+    Slice,
 };
 
 struct GrayConversionOptions {
@@ -156,6 +176,28 @@ private:
     SkBitmap bitmap_;
 };
 
+class SvgDocument {
+public:
+    SvgDocument();
+    ~SvgDocument();
+    SvgDocument(const SvgDocument &) = delete;
+    SvgDocument &operator=(const SvgDocument &) = delete;
+
+    bool load_file(const char *path);
+    bool load_bytes(const std::uint8_t *bytes, std::size_t length);
+    bool valid() const;
+    float intrinsic_width() const { return intrinsic_width_; }
+    float intrinsic_height() const { return intrinsic_height_; }
+    bool render(RasterCanvas &canvas, float x, float y, float width, float height, SvgAspectAlign align, SvgAspectScale scale) const;
+
+private:
+    bool set_dom(sk_sp<SkSVGDOM> dom);
+
+    sk_sp<SkSVGDOM> dom_;
+    float intrinsic_width_ = 0.0f;
+    float intrinsic_height_ = 0.0f;
+};
+
 bool valid_dimensions(int width, int height, PixelFormat pixel_format = PixelFormat::Gray8);
 const char *pixel_format_name(PixelFormat pixel_format);
 void clear(RasterCanvas &canvas, const NormalizedPaint &paint);
@@ -182,6 +224,7 @@ bool draw_path(RasterCanvas &canvas, const std::vector<float> &coords, bool clos
 bool shape_text(RasterCanvas &canvas, const std::string &utf8, const FontOptions &font_options, const std::string &features_string, TextLine *line, std::string *error_message);
 bool draw_text_line(RasterCanvas &canvas, const TextLine &line, float x, float y, const NormalizedPaint &paint);
 bool draw_image(RasterCanvas &canvas, const RasterImage &image, float src_x, float src_y, float src_width, float src_height, float dst_x, float dst_y, float dst_width, float dst_height, float alpha);
+bool draw_svg(RasterCanvas &canvas, const SvgDocument &svg, float x, float y, float width, float height, SvgAspectAlign align, SvgAspectScale scale);
 bool invert_rect(RasterCanvas &canvas, float x, float y, float width, float height);
 bool convert_to_gray8(const RasterCanvas &source, RasterCanvas *destination, const GrayConversionOptions &options);
 bool quantize_rect(RasterCanvas &canvas, float x, float y, float width, float height, const GrayConversionOptions &options);

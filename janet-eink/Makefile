@@ -4,10 +4,10 @@ CXX ?= c++
 BUILD_DIR := build
 NATIVE_MODULE := $(BUILD_DIR)/janet-skia.so
 SDL_PC ?= $(shell if command -v $(PKG_CONFIG) >/dev/null 2>&1 && $(PKG_CONFIG) --exists sdl2; then printf sdl2; elif command -v $(PKG_CONFIG) >/dev/null 2>&1 && $(PKG_CONFIG) --exists sdl2-compat; then printf sdl2-compat; else printf sdl2; fi)
-PC_MODULES := janet skia $(SDL_PC)
+PC_MODULES := janet skia skia-svg $(SDL_PC)
 comma := ,
 
-WARN_CXXFLAGS := -std=c++17 -Wall -Wextra -fPIC
+WARN_CXXFLAGS := -std=c++20 -Wall -Wextra -fPIC
 OPT_CXXFLAGS ?= -O2 -g
 PC_CFLAGS = $(shell $(PKG_CONFIG) --cflags $(PC_MODULES))
 PC_LIBS = $(shell $(PKG_CONFIG) --libs $(PC_MODULES))

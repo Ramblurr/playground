@@ -27,11 +27,15 @@
         inherit (pkgs) noto-fonts;
       };
 
+      skia = pkgs.callPackage ./nix/pkgs/skia/package.nix {
+        stdenv = pkgs.clangStdenv;
+      };
+
       janetOtterSdl = pkgs.callPackage ./nix/pkgs/janet-otter-sdl/package.nix {
         src = ./.;
         janet = pkgs.janet;
         SDL2 = pkgs.SDL2;
-        skia = pkgs.skia;
+        inherit skia;
       };
 
       fbinkKobo = armv7lPkgs.callPackage ./nix/pkgs/fbink/package.nix {
@@ -53,6 +57,8 @@
       janetSkiaBridgeKobo = armv7lPkgs.callPackage ./nix/pkgs/janet-skia-bridge/package.nix {
         stdenv = armv7lPkgs.clangStdenv;
         src = ./.;
+        pkg-config = pkgs.pkg-config;
+        qemu-user = pkgs.qemu-user;
         janet = armv7lPkgs.janet;
         fbink = fbinkKobo;
         skia = skiaKobo;
@@ -70,6 +76,7 @@
         jfmt = jfmt;
         janet-otter-sdl = janetOtterSdl;
         otter-fonts = otterFonts;
+        inherit skia;
         janet-armv7l = armv7lPkgs.janet;
         fbink-kobo = fbinkKobo;
         janet-fbink-bridge-kobo = janetFbinkBridgeKobo;
@@ -105,7 +112,7 @@
           pkgs.gnumake
           pkgs.pkg-config
           pkgs.SDL2
-          pkgs.skia
+          skia
           jeep
           jfmt
           janetOtterSdl

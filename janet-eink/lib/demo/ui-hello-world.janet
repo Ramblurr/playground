@@ -23,6 +23,9 @@
 (def demo-image-source
   (string (dirname (os/realpath (dyn :current-file))) "/otter-dance-frame.png"))
 
+(def demo-svg-source
+  (string (dirname (os/realpath (dyn :current-file))) "/otter-mark.svg"))
+
 (defn swatch
   [paint width height]
   [ui/rect {:paint paint :radius [8 4]}
@@ -85,6 +88,31 @@
                     :x :left
                     :y :top}]]]]]]]])
 
+(defn svg-demo
+  []
+  [ui/with-context {:font-family "Noto Sans"
+                    :font-size 20
+                    :paint "0"}
+   [ui/rect {:paint [{:fill "F"} {:stroke "8" :width 1}] :radius [16 10]}
+    [ui/padding {:padding 16}
+     [ui/row {:gap 18 :align :center}
+      [ui/column {:gap 4}
+       [ui/label {:font-size 24} "ui/svg: fit, fill, and anchors"]
+       [ui/label {:font-size 16 :paint "6"}
+        "SVG DOM renders into assigned bounds"]]
+      [ui/size {:width 220 :height 120}
+       [ui/rect {:paint [{:fill "F"} {:stroke "C" :width 1}]}
+        [ui/svg {:src demo-svg-source
+                 :scale :fit
+                 :x :center
+                 :y :center}]]]
+      [ui/size {:width 120 :height 120}
+       [ui/clip
+        [ui/svg {:src demo-svg-source
+                 :scale :fill
+                 :x :center
+                 :y :center}]]]]]]])
+
 (defn grid-label
   [paint text]
   [ui/align {:x :center :y :center}
@@ -143,6 +171,7 @@
    [grow-demo]
    [grid-demo]
    [context-image-demo]
+   [svg-demo]
    [ui/row {:gap 36 :align :top}
     [grayscale-column]
     [grayscale-row]]])

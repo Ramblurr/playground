@@ -29,6 +29,11 @@
 #include "core/SkTypeface.h"
 #include "ports/SkFontMgr_directory.h"
 #include "modules/skshaper/include/SkShaper_harfbuzz.h"
+#include "core/SkSize.h"
+#include "core/SkStream.h"
+#include "modules/svg/include/SkSVGDOM.h"
+#include "modules/svg/include/SkSVGSVG.h"
+#include "modules/svg/include/SkSVGTypes.h"
 
 namespace otter {
 namespace {
@@ -86,6 +91,25 @@ bool positive(float value) {
 
 bool finite_pair(float x, float y) {
     return std::isfinite(x) && std::isfinite(y);
+}
+
+SkSVGPreserveAspectRatio svg_preserve_aspect_ratio(SvgAspectAlign align, SvgAspectScale scale) {
+    SkSVGPreserveAspectRatio par;
+    switch (align) {
+        case SvgAspectAlign::XMinYMin: par.fAlign = SkSVGPreserveAspectRatio::kXMinYMin; break;
+        case SvgAspectAlign::XMidYMin: par.fAlign = SkSVGPreserveAspectRatio::kXMidYMin; break;
+        case SvgAspectAlign::XMaxYMin: par.fAlign = SkSVGPreserveAspectRatio::kXMaxYMin; break;
+        case SvgAspectAlign::XMinYMid: par.fAlign = SkSVGPreserveAspectRatio::kXMinYMid; break;
+        case SvgAspectAlign::XMidYMid: par.fAlign = SkSVGPreserveAspectRatio::kXMidYMid; break;
+        case SvgAspectAlign::XMaxYMid: par.fAlign = SkSVGPreserveAspectRatio::kXMaxYMid; break;
+        case SvgAspectAlign::XMinYMax: par.fAlign = SkSVGPreserveAspectRatio::kXMinYMax; break;
+        case SvgAspectAlign::XMidYMax: par.fAlign = SkSVGPreserveAspectRatio::kXMidYMax; break;
+        case SvgAspectAlign::XMaxYMax: par.fAlign = SkSVGPreserveAspectRatio::kXMaxYMax; break;
+        case SvgAspectAlign::None:
+        default: par.fAlign = SkSVGPreserveAspectRatio::kNone; break;
+    }
+    par.fScale = scale == SvgAspectScale::Slice ? SkSVGPreserveAspectRatio::kSlice : SkSVGPreserveAspectRatio::kMeet;
+    return par;
 }
 
 constexpr std::uint8_t kBayer8Thresholds[64] = {
@@ -587,6 +611,70 @@ bool RasterImage::reset(int width, int height, PixelFormat pixel_format, const s
     return true;
 }
 
+SvgDocument::SvgDocument() = default;
+
+SvgDocument::~SvgDocument() = default;
+
+bool SvgDocument::set_dom(sk_sp<SkSVGDOM> dom) {
+    if (!dom || dom->getRoot() == nullptr) {
+        dom_.reset();
+        intrinsic_width_ = 0.0f;
+        intrinsic_height_ = 0.0f;
+        return false;
+    }
+
+    const SkSize intrinsic = dom->containerSize();
+    intrinsic_width_ = std::isfinite(intrinsic.width()) ? std::max(0.0f, intrinsic.width()) : 0.0f;
+    intrinsic_height_ = std::isfinite(intrinsic.height()) ? std::max(0.0f, intrinsic.height()) : 0.0f;
+    dom_ = std::move(dom);
+    return true;
+}
+
+bool SvgDocument::load_file(const char *path) {
+    if (path == nullptr || path[0] == '\0') {
+        return false;
+    }
+    SkFILEStream stream(path);
+    if (!stream.isValid()) {
+        return false;
+    }
+    return set_dom(SkSVGDOM::MakeFromStream(stream));
+}
+
+bool SvgDocument::load_bytes(const std::uint8_t *bytes, std::size_t length) {
+    if (bytes == nullptr || length == 0U) {
+        return false;
+    }
+    SkMemoryStream stream(bytes, length, false);
+    return set_dom(SkSVGDOM::MakeFromStream(stream));
+}
+
+bool SvgDocument::valid() const {
+    return dom_ && dom_->getRoot() != nullptr;
+}
+
+bool SvgDocument::render(RasterCanvas &canvas, float x, float y, float width, float height, SvgAspectAlign align, SvgAspectScale scale) const {
+    if (!valid() || !finite_pair(x, y) || !positive(width) || !positive(height)) {
+        return false;
+    }
+
+    SkSVGSVG *root = dom_->getRoot();
+    if (root == nullptr) {
+        return false;
+    }
+
+    SkCanvas &sk_canvas = canvas.sk_canvas();
+    sk_canvas.save();
+    sk_canvas.translate(x, y);
+    dom_->setContainerSize(SkSize::Make(width, height));
+    root->setWidth(SkSVGLength(width));
+    root->setHeight(SkSVGLength(height));
+    root->setPreserveAspectRatio(svg_preserve_aspect_ratio(align, scale));
+    dom_->render(&sk_canvas);
+    sk_canvas.restore();
+    return true;
+}
+
 void clear(RasterCanvas &canvas, const NormalizedPaint &paint) {
     if (canvas.pixel_format() == PixelFormat::Rgba32) {
         canvas.sk_canvas().clear(rgba_color(paint));
@@ -764,6 +852,10 @@ bool draw_image(RasterCanvas &canvas, const RasterImage &image, float src_x, flo
     const SkRect dst = SkRect::MakeXYWH(dst_x, dst_y, dst_width, dst_height);
     canvas.sk_canvas().drawImageRect(sk_image, src, dst, SkSamplingOptions(), &paint, SkCanvas::kStrict_SrcRectConstraint);
     return true;
+}
+
+bool draw_svg(RasterCanvas &canvas, const SvgDocument &svg, float x, float y, float width, float height, SvgAspectAlign align, SvgAspectScale scale) {
+    return svg.render(canvas, x, y, width, height, align, scale);
 }
 
 bool invert_rect(RasterCanvas &canvas, float x, float y, float width, float height) {

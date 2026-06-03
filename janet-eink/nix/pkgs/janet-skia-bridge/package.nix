@@ -2,6 +2,7 @@
   stdenv,
   fbink,
   janet,
+  pkg-config,
   qemu-user,
   skia,
   src,
@@ -15,6 +16,7 @@ stdenv.mkDerivation {
   strictDeps = true;
 
   nativeBuildInputs = [
+    pkg-config
     qemu-user
   ];
 
@@ -27,17 +29,16 @@ stdenv.mkDerivation {
   buildPhase = ''
     runHook preBuild
 
-    $CXX -std=c++17 -Wall -Wextra -O2 -fPIC \
+    $CXX -std=c++20 -Wall -Wextra -O2 -fPIC \
       -I ${janet}/include \
       -I ${fbink}/include/fbink \
-      -I ${skia}/include/skia \
+      $(pkg-config --cflags skia skia-svg) \
       -L ${janet}/lib \
       -L ${fbink}/lib \
-      -L ${skia}/lib \
       -Wl,-rpath,'$ORIGIN' \
       -shared -o janet-skia.so \
       src/janet_skia.cc src/janet_skia_common.cc src/otter_drawing_backend.cc src/otter_input_evdev.cc \
-      -ljanet -lfbink -lskia -lskshaper -lskunicode_icu -lskunicode_core
+      -ljanet -lfbink $(pkg-config --libs skia skia-svg)
 
     export LD_LIBRARY_PATH="$PWD:${janet}/lib:${fbink}/lib:${skia}/lib''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     qemu-arm ${janet}/bin/janet -e '
