@@ -301,6 +301,10 @@
   [path]
   ((native-fn 'load-png) path))
 
+(defn create-image
+  [opts]
+  ((native-fn 'create-image) opts))
+
 (defn image-width
   [image]
   ((native-fn 'image-width) image))
@@ -308,6 +312,10 @@
 (defn image-height
   [image]
   ((native-fn 'image-height) image))
+
+(defn image-info
+  [image]
+  ((native-fn 'image-info) image))
 
 (defn draw-image
   [canvas image x y &opt opts]

@@ -359,7 +359,12 @@ private:
 }  // namespace
 
 std::size_t bytes_per_pixel(PixelFormat pixel_format) {
-    return pixel_format == PixelFormat::Rgba32 ? 4U : 1U;
+    switch (pixel_format) {
+        case PixelFormat::Rgba32: return 4U;
+        case PixelFormat::Gray8a: return 2U;
+        case PixelFormat::Gray8:
+        default: return 1U;
+    }
 }
 
 bool valid_dimensions(int width, int height, PixelFormat pixel_format) {
@@ -375,6 +380,7 @@ bool valid_dimensions(int width, int height, PixelFormat pixel_format) {
 const char *pixel_format_name(PixelFormat pixel_format) {
     switch (pixel_format) {
         case PixelFormat::Rgba32: return "rgba32";
+        case PixelFormat::Gray8a: return "gray8a";
         case PixelFormat::Gray8:
         default: return "gray8";
     }
@@ -391,7 +397,7 @@ RasterCanvas::RasterCanvas() = default;
 RasterCanvas::~RasterCanvas() = default;
 
 bool RasterCanvas::reset(int width, int height, PixelFormat pixel_format, const char *font_dir, const char *default_family) {
-    if (!valid_dimensions(width, height, pixel_format)) {
+    if (pixel_format == PixelFormat::Gray8a || !valid_dimensions(width, height, pixel_format)) {
         return false;
     }
 
@@ -472,6 +478,62 @@ bool RasterImage::load_png(const char *path) {
 
     bitmap.setImmutable();
     bitmap_ = bitmap;
+    pixel_format_ = PixelFormat::Rgba32;
+    width_ = bitmap_.width();
+    height_ = bitmap_.height();
+    return true;
+}
+
+bool RasterImage::reset(int width, int height, PixelFormat pixel_format, const std::vector<std::uint8_t> &pixels) {
+    if (!valid_dimensions(width, height, pixel_format)) {
+        return false;
+    }
+    const std::size_t expected = static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * bytes_per_pixel(pixel_format);
+    if (pixels.size() != expected) {
+        return false;
+    }
+
+    SkBitmap bitmap;
+    if (pixel_format == PixelFormat::Gray8) {
+        const SkImageInfo info = SkImageInfo::Make(width, height, kGray_8_SkColorType, kOpaque_SkAlphaType);
+        if (!bitmap.tryAllocPixels(info, static_cast<std::size_t>(width))) {
+            return false;
+        }
+        for (int y = 0; y < height; ++y) {
+            std::uint8_t *row = static_cast<std::uint8_t *>(bitmap.getAddr(0, y));
+            const std::uint8_t *src = pixels.data() + (static_cast<std::size_t>(y) * static_cast<std::size_t>(width));
+            std::memcpy(row, src, static_cast<std::size_t>(width));
+        }
+    } else {
+        const SkImageInfo info = SkImageInfo::Make(width, height, kN32_SkColorType, kPremul_SkAlphaType);
+        if (!bitmap.tryAllocPixels(info)) {
+            return false;
+        }
+        bitmap.erase(SK_ColorTRANSPARENT, SkIRect::MakeXYWH(0, 0, width, height));
+        const bool gray_alpha = pixel_format == PixelFormat::Gray8a;
+        for (int y = 0; y < height; ++y) {
+            for (int x = 0; x < width; ++x) {
+                const std::size_t pixel_index = static_cast<std::size_t>(y) * static_cast<std::size_t>(width) + static_cast<std::size_t>(x);
+                SkColor color = SK_ColorTRANSPARENT;
+                if (gray_alpha) {
+                    const std::size_t offset = pixel_index * 2U;
+                    const std::uint8_t gray = pixels[offset];
+                    const std::uint8_t alpha = pixels[offset + 1U];
+                    color = SkColorSetARGB(alpha, gray, gray, gray);
+                } else {
+                    const std::size_t offset = pixel_index * 4U;
+                    color = SkColorSetARGB(pixels[offset + 3U], pixels[offset], pixels[offset + 1U], pixels[offset + 2U]);
+                }
+                bitmap.erase(color, SkIRect::MakeXYWH(x, y, 1, 1));
+            }
+        }
+    }
+
+    bitmap.setImmutable();
+    bitmap_ = bitmap;
+    pixel_format_ = pixel_format;
+    width_ = width;
+    height_ = height;
     return true;
 }
 

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <new>
 #include <string>
 #include <vector>
@@ -70,7 +71,7 @@ static bool keyword_arg_equals(Janet value, const char *expected) {
     return janet_checktype(value, JANET_KEYWORD) && janet_cstrcmp(janet_unwrap_keyword(value), expected) == 0;
 }
 
-static otter::PixelFormat get_pixel_format_value(Janet value) {
+static otter::PixelFormat get_canvas_pixel_format_value(Janet value) {
     if (keyword_arg_equals(value, "gray8")) {
         return otter::PixelFormat::Gray8;
     }
@@ -78,6 +79,19 @@ static otter::PixelFormat get_pixel_format_value(Janet value) {
         return otter::PixelFormat::Rgba32;
     }
     janet_panic("pixel-format must be :gray8 or :rgba32");
+}
+
+static otter::PixelFormat get_image_pixel_format_value(Janet value) {
+    if (keyword_arg_equals(value, "gray8")) {
+        return otter::PixelFormat::Gray8;
+    }
+    if (keyword_arg_equals(value, "gray8a")) {
+        return otter::PixelFormat::Gray8a;
+    }
+    if (keyword_arg_equals(value, "rgba32")) {
+        return otter::PixelFormat::Rgba32;
+    }
+    janet_panic("image pixel-format must be :gray8, :gray8a, or :rgba32");
 }
 
 static Janet pixel_format_keyword(otter::PixelFormat pixel_format) {
@@ -90,7 +104,7 @@ static Janet cfun_create(int32_t argc, Janet *argv) {
     int32_t font_arg = 2;
     if (argc >= 3 && (janet_checktype(argv[2], JANET_KEYWORD) || janet_checktype(argv[2], JANET_NIL))) {
         if (!janet_checktype(argv[2], JANET_NIL)) {
-            pixel_format = get_pixel_format_value(argv[2]);
+            pixel_format = get_canvas_pixel_format_value(argv[2]);
         }
         font_arg = 3;
     }
@@ -302,6 +316,70 @@ static Janet cfun_load_png(int32_t argc, Janet *argv) {
     return janet_wrap_abstract(image);
 }
 
+static Janet required_option(Janet options, const char *key) {
+    Janet value = janet_get(options, janet_ckeywordv(key));
+    if (janet_checktype(value, JANET_NIL)) {
+        janet_panicf("image options missing required field :%s", key);
+    }
+    return value;
+}
+
+static int integer_option(Janet options, const char *key) {
+    Janet value = required_option(options, key);
+    if (!janet_checktype(value, JANET_NUMBER)) {
+        janet_panicf("image option :%s must be an integer", key);
+    }
+    const double number = janet_unwrap_number(value);
+    if (!std::isfinite(number) || std::floor(number) != number || number < 1.0 || number > static_cast<double>(std::numeric_limits<int>::max())) {
+        janet_panicf("image option :%s must be a positive integer", key);
+    }
+    return static_cast<int>(number);
+}
+
+static std::vector<std::uint8_t> byte_pixels_option(Janet options, std::size_t expected_len) {
+    Janet value = required_option(options, "pixels");
+    const Janet *items = nullptr;
+    int32_t len = 0;
+    if (!janet_indexed_view(value, &items, &len) || len < 0) {
+        janet_panic("image option :pixels must be an array or tuple of byte values");
+    }
+    if (static_cast<std::size_t>(len) != expected_len) {
+        janet_panicf("image option :pixels length must match width * height * bytes-per-pixel; expected %d bytes, got %d", static_cast<int>(expected_len), len);
+    }
+    std::vector<std::uint8_t> pixels;
+    pixels.reserve(static_cast<std::size_t>(len));
+    for (int32_t i = 0; i < len; ++i) {
+        if (!janet_checktype(items[i], JANET_NUMBER)) {
+            janet_panic("image option :pixels must contain only byte numbers");
+        }
+        const double number = janet_unwrap_number(items[i]);
+        if (!std::isfinite(number) || std::floor(number) != number || number < 0.0 || number > 255.0) {
+            janet_panic("image option :pixels must contain only byte numbers in 0..255");
+        }
+        pixels.push_back(static_cast<std::uint8_t>(number));
+    }
+    return pixels;
+}
+
+static Janet cfun_create_image(int32_t argc, Janet *argv) {
+    janet_fixarity(argc, 1);
+    Janet options = argv[0];
+    if (!janet_checktype(options, JANET_TABLE) && !janet_checktype(options, JANET_STRUCT)) {
+        janet_panic("create-image expects an options table");
+    }
+    const int width = integer_option(options, "width");
+    const int height = integer_option(options, "height");
+    const otter::PixelFormat pixel_format = get_image_pixel_format_value(required_option(options, "pixel-format"));
+    const std::size_t expected = static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * (pixel_format == otter::PixelFormat::Rgba32 ? 4U : (pixel_format == otter::PixelFormat::Gray8a ? 2U : 1U));
+    std::vector<std::uint8_t> pixels = byte_pixels_option(options, expected);
+    void *memory = janet_abstract(&image_type, sizeof(otter::RasterImage));
+    auto *image = new (memory) otter::RasterImage();
+    if (!image->reset(width, height, pixel_format, pixels)) {
+        janet_panicf("failed to create %s image with dimensions %dx%d", otter::pixel_format_name(pixel_format), width, height);
+    }
+    return janet_wrap_abstract(image);
+}
+
 static Janet cfun_image_width(int32_t argc, Janet *argv) {
     janet_fixarity(argc, 1);
     return janet_wrap_integer(get_image(argv, 0)->width());
@@ -310,6 +388,16 @@ static Janet cfun_image_width(int32_t argc, Janet *argv) {
 static Janet cfun_image_height(int32_t argc, Janet *argv) {
     janet_fixarity(argc, 1);
     return janet_wrap_integer(get_image(argv, 0)->height());
+}
+
+static Janet cfun_image_info(int32_t argc, Janet *argv) {
+    janet_fixarity(argc, 1);
+    otter::RasterImage *image = get_image(argv, 0);
+    JanetTable *table = janet_table(3);
+    janet_table_put(table, janet_ckeywordv("width"), janet_wrap_integer(image->width()));
+    janet_table_put(table, janet_ckeywordv("height"), janet_wrap_integer(image->height()));
+    janet_table_put(table, janet_ckeywordv("pixel-format"), pixel_format_keyword(image->pixel_format()));
+    return janet_wrap_table(table);
 }
 
 static Janet cfun_draw_image(int32_t argc, Janet *argv) {
@@ -501,12 +589,20 @@ static const JanetReg common_cfuns[] = {
         "(skia/load-png path)\n\nLoad a PNG file and return an image handle."
     },
     {
+        "create-image", cfun_create_image,
+        "(skia/create-image options)\n\nCreate a synthetic :gray8, :gray8a, or :rgba32 image from byte pixels."
+    },
+    {
         "image-width", cfun_image_width,
         "(skia/image-width image)\n\nReturn image width in pixels."
     },
     {
         "image-height", cfun_image_height,
         "(skia/image-height image)\n\nReturn image height in pixels."
+    },
+    {
+        "image-info", cfun_image_info,
+        "(skia/image-info image)\n\nReturn image width, height, and source pixel format."
     },
     {
         "draw-image", cfun_draw_image,

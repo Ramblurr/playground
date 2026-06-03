@@ -21,6 +21,7 @@ constexpr int kKoboScreenHeight = 1680;
 
 enum class PixelFormat {
     Gray8,
+    Gray8a,
     Rgba32,
 };
 
@@ -132,11 +133,16 @@ public:
     RasterImage &operator=(const RasterImage &) = delete;
 
     bool load_png(const char *path);
-    int width() const { return bitmap_.width(); }
-    int height() const { return bitmap_.height(); }
+    bool reset(int width, int height, PixelFormat pixel_format, const std::vector<std::uint8_t> &pixels);
+    PixelFormat pixel_format() const { return pixel_format_; }
+    int width() const { return width_; }
+    int height() const { return height_; }
     const SkBitmap &bitmap() const { return bitmap_; }
 
 private:
+    PixelFormat pixel_format_ = PixelFormat::Rgba32;
+    int width_ = 0;
+    int height_ = 0;
     SkBitmap bitmap_;
 };
 

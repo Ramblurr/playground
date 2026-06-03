@@ -277,6 +277,78 @@
   (is (= 255 (skia/sample-gray frame 17 17))
       "draw-image does not write outside the destination rectangle"))
 
+(deftest load-png-reports-normalized-rgba32-image-info
+  (def image (skia/load-png "test/fixtures/checker.png"))
+  (def observed
+    @{:info (skia/image-info image)
+      :legacy-size @{:width (skia/image-width image)
+                     :height (skia/image-height image)}})
+  (is (deep= @{:info @{:width 4 :height 4 :pixel-format :rgba32}
+               :legacy-size @{:width 4 :height 4}}
+             observed)
+      "loaded color PNG images report normalized :rgba32 image info"))
+
+(deftest synthetic-gray8-and-gray8a-images-report-format-info
+  (def gray (skia/create-image {:width 2 :height 1 :pixel-format :gray8 :pixels @[0 255]}))
+  (def gray-alpha (skia/create-image {:width 2 :height 1 :pixel-format :gray8a :pixels @[0 128 255 128]}))
+  (def observed
+    @{:gray (skia/image-info gray)
+      :gray-alpha (skia/image-info gray-alpha)})
+  (is (deep= @{:gray @{:width 2 :height 1 :pixel-format :gray8}
+               :gray-alpha @{:width 2 :height 1 :pixel-format :gray8a}}
+             observed)
+      "synthetic grayscale and grayscale-alpha images report their source formats"))
+
+(deftest gray8-image-source-draws-into-gray8-and-rgba32-canvases
+  (def image (skia/create-image {:width 2 :height 1 :pixel-format :gray8 :pixels @[0 255]}))
+  (def gray (skia/create {:width 2 :height 1 :pixel-format :gray8}))
+  (def rgba (skia/create {:width 2 :height 1 :pixel-format :rgba32}))
+  (skia/clear gray "80")
+  (skia/clear rgba "F00")
+  (skia/draw-image gray image 0 0)
+  (skia/draw-image rgba image 0 0)
+  (def observed
+    @{:gray @[(skia/sample-gray gray 0 0)
+              (skia/sample-gray gray 1 0)]
+      :rgba @[(skia/sample-rgba rgba 0 0)
+              (skia/sample-rgba rgba 1 0)]})
+  (is (deep= @{:gray @[0 255]
+               :rgba @[@{:r 0 :g 0 :b 0 :a 255}
+                       @{:r 255 :g 255 :b 255 :a 255}]}
+             observed)
+      ":gray8 image sources draw into both render canvas formats"))
+
+(deftest gray8a-image-source-alpha-blends-into-gray8-destinations
+  (def image (skia/create-image {:width 2 :height 1 :pixel-format :gray8a :pixels @[0 128 255 128]}))
+  (def over-white (skia/create {:width 2 :height 1 :pixel-format :gray8}))
+  (def over-black (skia/create {:width 2 :height 1 :pixel-format :gray8}))
+  (skia/clear over-white "F")
+  (skia/clear over-black "0")
+  (skia/draw-image over-white image 0 0)
+  (skia/draw-image over-black image 0 0)
+  (def observed
+    @{:over-white @[(skia/sample-gray over-white 0 0)
+                    (skia/sample-gray over-white 1 0)]
+      :over-black @[(skia/sample-gray over-black 0 0)
+                    (skia/sample-gray over-black 1 0)]})
+  (is (deep= @{:over-white @[127 255]
+               :over-black @[0 128]}
+             observed)
+      ":gray8a image sources alpha-blend gray over opaque gray8 destinations"))
+
+(deftest gray8a-image-source-alpha-blends-into-rgba32-and-flattens-alpha
+  (def image (skia/create-image {:width 2 :height 1 :pixel-format :gray8a :pixels @[0 128 255 128]}))
+  (def frame (skia/create {:width 2 :height 1 :pixel-format :rgba32}))
+  (skia/clear frame "0")
+  (skia/draw-image frame image 0 0)
+  (def observed
+    @{:black-half-over-black (skia/sample-rgba frame 0 0)
+      :white-half-over-black (skia/sample-rgba frame 1 0)})
+  (is (deep= @{:black-half-over-black @{:r 0 :g 0 :b 0 :a 255}
+               :white-half-over-black @{:r 128 :g 128 :b 128 :a 255}}
+             observed)
+      ":gray8a image sources alpha-blend into rgba32 destinations and leave output pixels opaque"))
+
 (deftest explicit-gray8-and-rgba32-canvases-report-format-info
   (def gray (skia/create {:width 16 :height 8 :pixel-format :gray8}))
   (def rgba (skia/create {:width 16 :height 8 :pixel-format :rgba32}))
@@ -322,8 +394,10 @@
 (deftest unsupported-canvas-pixel-formats-fail-clearly
   (def observed
     @{:rgb565-rejected? (not (get (protect (skia/create {:width 8 :height 8 :pixel-format :rgb565})) 0))
+      :gray8a-canvas-rejected? (not (get (protect (skia/create {:width 8 :height 8 :pixel-format :gray8a})) 0))
       :string-format-rejected? (not (get (protect (skia/create {:width 8 :height 8 :pixel-format "gray8"})) 0))})
   (is (deep= @{:rgb565-rejected? true
+               :gray8a-canvas-rejected? true
                :string-format-rejected? true}
              observed)
       "only :gray8 and :rgba32 are accepted render canvas formats in this milestone"))
