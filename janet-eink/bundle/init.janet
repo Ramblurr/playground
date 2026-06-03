@@ -27,6 +27,7 @@
   (bundle/add manifest "lib/ui/reconcile.janet" "otter/lib/ui/reconcile.janet")
   (bundle/add manifest "lib/ui/util.janet" "otter/lib/ui/util.janet")
   (bundle/add manifest "lib/demo/shapes.janet" "otter/lib/demo/shapes.janet")
+  (bundle/add manifest "lib/demo/ui-hello-world.janet" "otter/lib/demo/ui-hello-world.janet")
   (bundle/add manifest "lib/signals.janet" "otter/lib/signals.janet")
   (ensure-directory (string (dyn :syspath) "/share"))
   (bundle/add-directory manifest "share/janet-eink")

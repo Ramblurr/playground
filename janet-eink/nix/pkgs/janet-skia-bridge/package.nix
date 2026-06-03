@@ -36,7 +36,8 @@ stdenv.mkDerivation {
       -L ${skia}/lib \
       -Wl,-rpath,'$ORIGIN' \
       -shared -o janet-skia.so \
-      src/janet_skia.cc src/janet_skia_common.cc src/otter_drawing_backend.cc -ljanet -lfbink -lskia
+      src/janet_skia.cc src/janet_skia_common.cc src/otter_drawing_backend.cc \
+      -ljanet -lfbink -lskia -lskshaper -lskunicode_icu -lskunicode_core
 
     export LD_LIBRARY_PATH="$PWD:${janet}/lib:${fbink}/lib:${skia}/lib''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     qemu-arm ${janet}/bin/janet -e '
